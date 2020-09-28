@@ -60,15 +60,17 @@ const StringBijection<FXuint> GNEInternalLane::LinkStateNames(
 GNEInternalLane::GNEInternalLane(GNETLSEditorFrame* editor, const GNEJunction* junctionParent,
                                  const std::string& id, const PositionVector& shape, int tlIndex, LinkState state) :
     GNENetworkElement(junctionParent->getNet(), id, GLO_TLLOGIC, GNE_TAG_INTERNAL_LANE,
-{}, {}, {}, {}, {}, {}, {}, {}),
-myJunctionParent(junctionParent),
-myState(state),
-myStateTarget(myState),
-myEditor(editor),
-myTlIndex(tlIndex),
-myPopup(nullptr) {
+    {}, {}, {}, {}, {}, {}, {}, {}),
+    myJunctionParent(junctionParent),
+    myState(state),
+    myStateTarget(myState),
+    myEditor(editor),
+    myTlIndex(tlIndex),
+    myPopup(nullptr) {
     // calculate internal lane geometry
     myInternalLaneGeometry.updateGeometry(shape);
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -95,6 +97,19 @@ GNEInternalLane::updateGeometry() {
 Position
 GNEInternalLane::getPositionInView() const {
     return myJunctionParent->getPositionInView();
+}
+
+
+GNEMoveOperation* 
+GNEInternalLane::getMoveOperation(const double /*shapeOffset*/) {
+    // internal lanes cannot be moved
+    return nullptr;
+}
+
+
+void 
+GNEInternalLane::removeGeometryPoint(const Position /*clickedPosition*/, GNEUndoList* /*undolist*/) {
+    // geometry points of internal lanes cannot be removed
 }
 
 
@@ -190,11 +205,10 @@ GNEInternalLane::getParameterWindow(GUIMainWindow& app, GUISUMOAbstractView&) {
 }
 
 
-Boundary
-GNEInternalLane::getCenteringBoundary() const {
-    Boundary b = myInternalLaneGeometry.getShape().getBoxBoundary();
-    b.grow(10);
-    return b;
+void
+GNEInternalLane::updateCenteringBoundary(const bool /*updateGrid*/) {
+    myBoundary = myInternalLaneGeometry.getShape().getBoxBoundary();
+    myBoundary.grow(10);
 }
 
 
@@ -241,6 +255,18 @@ GNEInternalLane::isAttributeEnabled(SumoXMLAttr key) const {
 void
 GNEInternalLane::setAttribute(SumoXMLAttr key, const std::string& /*value*/) {
     throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
+}
+
+
+void 
+GNEInternalLane::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // internal lanes cannot be moved
+}
+
+
+void
+GNEInternalLane::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // internal lanes cannot be moved
 }
 
 /****************************************************************************/

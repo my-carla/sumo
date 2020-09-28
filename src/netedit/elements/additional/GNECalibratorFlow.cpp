@@ -31,9 +31,11 @@
 
 GNECalibratorFlow::GNECalibratorFlow(GNEAdditional* calibratorParent) :
     GNEAdditional(calibratorParent->getNet(), GLO_CALIBRATOR, SUMO_TAG_FLOW_CALIBRATOR, "", false,
-{}, {}, {}, {calibratorParent}, {}, {}, {}, {}),
-myVehicleType(calibratorParent->getNet()->retrieveDemandElement(SUMO_TAG_VTYPE, DEFAULT_VTYPE_ID)),
-myRoute(calibratorParent->getNet()->getAttributeCarriers()->getDemandElements().at(SUMO_TAG_ROUTE).begin()->second) {
+        {}, {}, {}, {calibratorParent}, {}, {}, {}, {}),
+    myVehicleType(calibratorParent->getNet()->retrieveDemandElement(SUMO_TAG_VTYPE, DEFAULT_VTYPE_ID)),
+    myRoute(calibratorParent->getNet()->getAttributeCarriers()->getDemandElements().at(SUMO_TAG_ROUTE).begin()->second) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
     // fill calibrator flows with default values
     setDefaultValues();
 }
@@ -44,59 +46,52 @@ GNECalibratorFlow::GNECalibratorFlow(GNEAdditional* calibratorParent, GNEDemandE
                                      const std::string& arrivalPos, const std::string& arrivalSpeed, const std::string& line, int personNumber, int containerNumber, bool reroute,
                                      const std::string& departPosLat, const std::string& arrivalPosLat, SUMOTime begin, SUMOTime end) :
     GNEAdditional(calibratorParent->getNet(), GLO_CALIBRATOR, SUMO_TAG_FLOW_CALIBRATOR, "", false,
-{}, {}, {}, {calibratorParent}, {}, {}, {}, {}),
-myVehicleType(vehicleType),
-myRoute(route),
-myVehsPerHour(vehsPerHour),
-mySpeed(speed),
-myColor(color),
-myDepartLane(departLane),
-myDepartPos(departPos),
-myDepartSpeed(departSpeed),
-myArrivalLane(arrivalLane),
-myArrivalPos(arrivalPos),
-myArrivalSpeed(arrivalSpeed),
-myLine(line),
-myPersonNumber(personNumber),
-myContainerNumber(containerNumber),
-myReroute(reroute),
-myDepartPosLat(departPosLat),
-myArrivalPosLat(arrivalPosLat),
-myBegin(begin),
-myEnd(end) {
+        {}, {}, {}, {calibratorParent}, {}, {}, {}, {}),
+    myVehicleType(vehicleType),
+    myRoute(route),
+    myVehsPerHour(vehsPerHour),
+    mySpeed(speed),
+    myColor(color),
+    myDepartLane(departLane),
+    myDepartPos(departPos),
+    myDepartSpeed(departSpeed),
+    myArrivalLane(arrivalLane),
+    myArrivalPos(arrivalPos),
+    myArrivalSpeed(arrivalSpeed),
+    myLine(line),
+    myPersonNumber(personNumber),
+    myContainerNumber(containerNumber),
+    myReroute(reroute),
+    myDepartPosLat(departPosLat),
+    myArrivalPosLat(arrivalPosLat),
+    myBegin(begin),
+    myEnd(end) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
 GNECalibratorFlow::~GNECalibratorFlow() {}
 
 
-void
-GNECalibratorFlow::moveGeometry(const Position&) {
-    // This additional cannot be moved
-}
-
-
-void
-GNECalibratorFlow::commitGeometryMoving(GNEUndoList*) {
-    // This additional cannot be moved
+GNEMoveOperation* 
+GNECalibratorFlow::getMoveOperation(const double /*shapeOffset*/) {
+    // calibrators flow cannot be moved
+    return nullptr;
 }
 
 
 void
 GNECalibratorFlow::updateGeometry() {
-    // This additional doesn't own a geometry
+    // use geometry of calibrator parent
+    myAdditionalGeometry.updateGeometry(getParentAdditionals().front()->getAdditionalGeometry());
 }
 
 
-Position
-GNECalibratorFlow::getPositionInView() const {
-    return getParentAdditionals().at(0)->getPositionInView();
-}
-
-
-Boundary
-GNECalibratorFlow::getCenteringBoundary() const {
-    return getParentAdditionals().at(0)->getCenteringBoundary();
+void 
+GNECalibratorFlow::updateCenteringBoundary(const bool /*updateGrid*/) {
+    // use boundary of parent element
+    myBoundary = getParentAdditionals().front()->getCenteringBoundary();
 }
 
 
@@ -406,6 +401,15 @@ GNECalibratorFlow::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void GNECalibratorFlow::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // nothing to do
+}
+
+void GNECalibratorFlow::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // nothing to do
 }
 
 

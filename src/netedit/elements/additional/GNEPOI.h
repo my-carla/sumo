@@ -19,8 +19,7 @@
 // GUIPointOfInterest and NLHandler)
 /****************************************************************************/
 #pragma once
-#include <utils/gui/globjects/GUIPointOfInterest.h>
-#include <netedit/GNEMoveShape.h>
+#include <utils/shapes/PointOfInterest.h>
 
 #include "GNEShape.h"
 
@@ -39,10 +38,10 @@ class GNELane;
  *  is computed using the junction's position to which an offset of 1m to each
  *  side is added.
  */
-class GNEPOI : public GUIPointOfInterest, public GNEShape {
+class GNEPOI : public GNEShape, public PointOfInterest {
 
 public:
-    /// @brief needed to avoid diamond Problem between GUIPointOfInterest and GNEShape
+    /// @brief needed to avoid diamond Problem between PointOfInterest and GNEShape
     using GNEShape::getID;
 
     /** @brief Constructor
@@ -86,11 +85,13 @@ public:
     /// @brief Destructor
     ~GNEPOI();
 
-    /// @brief get ID
-    const std::string& getID() const;
+    /**@brief get move operation for the given shapeOffset
+    * @note returned GNEMoveOperation can be nullptr
+    */
+    GNEMoveOperation* getMoveOperation(const double shapeOffset);
 
-    /// @brief get GUIGlObject associated with this AttributeCarrier
-    GUIGlObject* getGUIGlObject();
+    /// @brief remove geometry point in the clicked position
+    void removeGeometryPoint(const Position clickedPosition, GNEUndoList* undoList);
 
     /// @brief gererate a new ID for an element child
     std::string generateChildID(SumoXMLTag childTag);
@@ -101,41 +102,18 @@ public:
      */
     void setParameter(const std::string& key, const std::string& value);
 
-    /// @name functions for edit geometry
-    /// @{
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void startPOIGeometryMoving();
-
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void endPOIGeometryMoving();
-
-    /**@brief change the position of the element geometry without saving in undoList
-    * @param[in] newPosition new position of geometry
-    * @note should't be called in drawGL(...) functions to avoid smoothness issues
-    */
-    void movePOIGeometry(const Position& offset);
-
-    /**@brief commit geometry changes in the attributes of an element after use of moveGeometry(...)
-    * @param[in] undoList The undoList on which to register changes
-    */
-    void commitPOIGeometryMoving(GNEUndoList* undoList);
-    /// @}
-
     /// @name inherited from GNEShape
     /// @{
     /// @brief update pre-computed geometry information
     void updateGeometry();
 
-    /// @brief Returns the boundary to which the view shall be centered in order to show the object
-    Boundary getCenteringBoundary() const;
+    /// @brief update centering boundary (implies change in RTREE)
+    void updateCenteringBoundary(const bool updateGrid);
 
     /**@brief writte shape element into a xml file
     * @param[in] device device in which write parameters of additional element
     */
     void writeShape(OutputDevice& device);
-
-    /// @brief Returns position of additional in view
-    Position getPositionInView() const;
 
     /// @brief Returns the numerical id of the object
     GUIGlID getGlID() const;
@@ -207,11 +185,14 @@ protected:
     Position myGEOPosition;
 
 private:
-    /// @brief position used for move Lanes
-    Position myPositionBeforeMoving;
-
     /// @brief set attribute after validation
     void setAttribute(SumoXMLAttr key, const std::string& value);
+
+    /// @brief set move shape
+    void setMoveShape(const GNEMoveResult& moveResult);
+
+    /// @brief commit move shape
+    void commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList);
 
     /// @brief Invalidated copy constructor.
     GNEPOI(const GNEPOI&) = delete;

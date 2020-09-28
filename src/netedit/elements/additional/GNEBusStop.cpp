@@ -38,8 +38,10 @@ GNEBusStop::GNEBusStop(const std::string& id, GNELane* lane, GNENet* net, const 
     GNEStoppingPlace(id, net, GLO_BUS_STOP, SUMO_TAG_BUS_STOP, lane, startPos, endPos, parametersSet, name, friendlyPosition, blockMovement),
     myLines(lines),
     myPersonCapacity(personCapacity),
-    myParkingLength(parkingLength)
-{ }
+    myParkingLength(parkingLength) { 
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
+}
 
 
 GNEBusStop::~GNEBusStop() {}
@@ -62,31 +64,22 @@ GNEBusStop::updateGeometry() {
     // Get position of the sign
     mySignPos = tmpShape.getLineCenter();
 
-    // update block icon position
-    myBlockIcon.updatePositionAndRotation();
-
     // update child demand elements geometry
-    for (const auto& i : getChildDemandElements()) {
+    for (const auto& demandElement : getChildDemandElements()) {
         // special case for person trips
-        if (i->getTagProperty().isPersonTrip()) {
+        if (demandElement->getTagProperty().isPersonTrip()) {
             // update previous and next person plan
-            GNEDemandElement* previousDemandElement = i->getParentDemandElements().front()->getPreviousChildDemandElement(i);
+            GNEDemandElement* previousDemandElement = demandElement->getParentDemandElements().front()->getPreviousChildDemandElement(demandElement);
             if (previousDemandElement) {
                 previousDemandElement->updatePartialGeometry(getParentLanes().front());
             }
-            GNEDemandElement* nextDemandElement = i->getParentDemandElements().front()->getNextChildDemandElement(i);
+            GNEDemandElement* nextDemandElement = demandElement->getParentDemandElements().front()->getNextChildDemandElement(demandElement);
             if (nextDemandElement) {
                 nextDemandElement->updatePartialGeometry(getParentLanes().front());
             }
         }
-        i->updatePartialGeometry(getParentLanes().front());
+        demandElement->updatePartialGeometry(getParentLanes().front());
     }
-}
-
-
-Boundary
-GNEBusStop::getCenteringBoundary() const {
-    return myAdditionalGeometry.getShape().getBoxBoundary().grow(10);
 }
 
 
@@ -126,7 +119,7 @@ GNEBusStop::drawGL(const GUIVisualizationSettings& s) const {
             // draw sign
             drawSign(s, busStopExaggeration, baseColor, signColor, "H");
             // draw lock icon
-            myBlockIcon.drawIcon(s, busStopExaggeration);
+            GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, busStopExaggeration, 0, 0, true);
         }
         // pop draw matrix
         glPopMatrix();
@@ -140,10 +133,10 @@ GNEBusStop::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedContourShape(true, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.busStopWidth, busStopExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.busStopWidth, busStopExaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedContourShape(false, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.busStopWidth, busStopExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.busStopWidth, busStopExaggeration);
         }
         // draw child demand elements
         for (const auto& demandElement : getChildDemandElements()) {
@@ -348,9 +341,13 @@ GNEBusStop::drawConnectionAccess(const GUIVisualizationSettings& s, const RGBCol
         GLHelper::setColor(color);
         // draw lines between BusStops and Access
         for (const auto& access : getChildAdditionals()) {
-            GLHelper::drawBoxLine(access->getAdditionalGeometry().getPosition(),
-                                  RAD2DEG(myBlockIcon.getPosition().angleTo2D(access->getAdditionalGeometry().getPosition())) - 90,
-                                  myBlockIcon.getPosition().distanceTo2D(access->getAdditionalGeometry().getPosition()), .05);
+            // get busStop center
+            const Position busStopCenter = myAdditionalGeometry.getShape().getLineCenter();
+            // get access center
+            const Position accessCenter = access->getAdditionalGeometry().getShape().front();
+            GLHelper::drawBoxLine(accessCenter,
+                RAD2DEG(busStopCenter.angleTo2D(accessCenter)) - 90,
+                busStopCenter.distanceTo2D(accessCenter), .05);
         }
         // pop draw matrix
         glPopMatrix();

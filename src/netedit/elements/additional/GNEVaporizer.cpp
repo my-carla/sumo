@@ -34,13 +34,22 @@
 
 GNEVaporizer::GNEVaporizer(GNENet* net, GNEEdge* edge, SUMOTime begin, SUMOTime end, const std::string& name) :
     GNEAdditional(edge->getID(), net, GLO_VAPORIZER, SUMO_TAG_VAPORIZER, name, false,
-{}, {edge}, {}, {}, {}, {}, {}, {}),
-myBegin(begin),
-myEnd(end) {
+        {}, {edge}, {}, {}, {}, {}, {}, {}),
+    myBegin(begin),
+    myEnd(end) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
 GNEVaporizer::~GNEVaporizer() {
+}
+
+
+GNEMoveOperation* 
+GNEVaporizer::getMoveOperation(const double /*shapeOffset*/) {
+    // vaporizers cannot be moved
+    return nullptr;
 }
 
 
@@ -51,40 +60,20 @@ GNEVaporizer::updateGeometry() {
 }
 
 
-Position
-GNEVaporizer::getPositionInView() const {
-    if (getParentEdges().front()->getLanes().front()->getLaneShape().length() < 2.5) {
-        return getParentEdges().front()->getLanes().front()->getLaneShape().front();
-    } else {
-        Position A = getParentEdges().front()->getLanes().front()->getLaneShape().positionAtOffset(2.5);
-        Position B = getParentEdges().front()->getLanes().back()->getLaneShape().positionAtOffset(2.5);
-        // return Middle point
-        return Position((A.x() + B.x()) / 2, (A.y() + B.y()) / 2);
-    }
-}
-
-
-Boundary
-GNEVaporizer::getCenteringBoundary() const {
-    return myAdditionalGeometry.getShape().getBoxBoundary().grow(10);
+void 
+GNEVaporizer::updateCenteringBoundary(const bool /*updateGrid*/) {
+    // update geometry
+    updateGeometry();
+    // add shape boundary
+    myBoundary = myAdditionalGeometry.getShape().getBoxBoundary();
+    // grow
+    myBoundary.grow(10);
 }
 
 
 void
 GNEVaporizer::splitEdgeGeometry(const double /*splitPosition*/, const GNENetworkElement* /*originalElement*/, const GNENetworkElement* /*newElement*/, GNEUndoList* /*undoList*/) {
     // geometry of this element cannot be splitted
-}
-
-
-void
-GNEVaporizer::moveGeometry(const Position&) {
-    // This additional cannot be moved
-}
-
-
-void
-GNEVaporizer::commitGeometryMoving(GNEUndoList*) {
-    // This additional cannot be moved
 }
 
 
@@ -128,8 +117,8 @@ GNEVaporizer::drawGL(const GUIVisualizationSettings& s) const {
         GNEGeometry::drawGeometry(myNet->getViewNet(), myAdditionalGeometry, 0.05 * vaporizerExaggeration);
         // move to icon position and front
         glTranslated(myAdditionalGeometry.getShape().front().x(), myAdditionalGeometry.getShape().front().y(), .1);
-        // rotate
-        glRotated(myAdditionalGeometry.getShape().rotationDegreeAtOffset(0), 0, 0, -1);
+        // rotate over lane
+        GNEGeometry::rotateOverLane(myAdditionalGeometry.getShapeRotations().front());
         // Draw icon depending of Route Probe is selected and if isn't being drawn for selecting
         if (!s.drawForRectangleSelection && s.drawDetail(s.detailSettings.laneTextures, vaporizerExaggeration)) {
             // set color
@@ -156,10 +145,10 @@ GNEVaporizer::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedContourShape(true, s, myAdditionalGeometry.getShape(), 0.3, vaporizerExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape(), 0.3, vaporizerExaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedContourShape(false, s, myAdditionalGeometry.getShape(), 0.3, vaporizerExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape(), 0.3, vaporizerExaggeration);
         }
     }
 }
@@ -308,5 +297,16 @@ GNEVaporizer::setAttribute(SumoXMLAttr key, const std::string& value) {
     }
 }
 
+
+void 
+GNEVaporizer::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // nothing to do
+}
+
+
+void 
+GNEVaporizer::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // nothing to do
+}
 
 /****************************************************************************/

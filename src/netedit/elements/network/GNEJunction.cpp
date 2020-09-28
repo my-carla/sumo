@@ -53,15 +53,17 @@
 
 GNEJunction::GNEJunction(GNENet* net, NBNode* nbn, bool loaded) :
     GNENetworkElement(net, nbn->getID(), GLO_JUNCTION, SUMO_TAG_JUNCTION,
-{}, {}, {}, {}, {}, {}, {}, {}),
-myNBNode(nbn),
-myMaxDrawingSize(1),
-myAmCreateEdgeSource(false),
-myLogicStatus(loaded ? FEATURE_LOADED : FEATURE_GUESSED),
-myAmResponsible(false),
-myHasValidLogic(loaded),
-myAmTLSSelected(false),
-myColorForMissingConnections(false) {
+        {}, {}, {}, {}, {}, {}, {}, {}),
+    myNBNode(nbn),
+    myMaxDrawingSize(1),
+    myAmCreateEdgeSource(false),
+    myLogicStatus(loaded ? FEATURE_LOADED : FEATURE_GUESSED),
+    myAmResponsible(false),
+    myHasValidLogic(loaded),
+    myAmTLSSelected(false),
+    myColorForMissingConnections(false) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -111,142 +113,58 @@ GNEJunction::getPositionInView() const {
 }
 
 
-void
-GNEJunction::startJunctionShapeGeometryMoving(const double shapeOffset) {
-    // save current centering boundary
-    myMovingGeometryBoundary = getCenteringBoundary();
-    // start move shape depending of block shape
-    startMoveShape(myNBNode->getShape(), shapeOffset, myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.junctionGeometryPointRadius);
-}
-
-
-void
-GNEJunction::endJunctionShapeGeometryMoving() {
-    // check that endGeometryMoving was called only once
-    if (myMovingGeometryBoundary.isInitialised()) {
-        // Remove object from net
-        myNet->removeGLObjectFromGrid(this);
-        // reset myMovingGeometryBoundary
-        myMovingGeometryBoundary.reset();
-        // add object into grid again (using the new centering boundary)
-        myNet->addGLObjectIntoGrid(this);
-    }
-}
-
-
-int
-GNEJunction::getJunctionShapeVertexIndex(Position pos, const bool snapToGrid) const {
-    // get shape
-    const PositionVector shape = myNBNode->getShape();
-    // check shape size
-    if (shape.size() == 0) {
-        return -1;
-    }
-    // check if position has to be snapped to grid
-    if (snapToGrid) {
-        pos = myNet->getViewNet()->snapToActiveGrid(pos);
-    }
-    const double offset = shape.nearest_offset_to_point2D(pos, true);
-    if (offset == GeomHelper::INVALID_OFFSET) {
-        // check if we clicked over start or end position
-        if (shape.front().distanceTo2D(pos) < myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.junctionGeometryPointRadius) {
-            return 0;
-        } else if (shape.back().distanceTo2D(pos) < myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.junctionGeometryPointRadius) {
-            return (int)shape.size() - 1;
+GNEMoveOperation* 
+GNEJunction::getMoveOperation(const double shapeOffset) {
+    // edit depending if shape is being edited
+    if (isShapeEdited()) {
+        // declare shape to move
+        PositionVector shapeToMove = myNBNode->getShape();
+        // first check if in the given shapeOffset there is a geometry point
+        const Position positionAtOffset = shapeToMove.positionAtOffset2D(shapeOffset);
+        // check if position is valid
+        if (positionAtOffset == Position::INVALID) {
+            return nullptr;
         } else {
-            return -1;
+            // obtain index
+            int index = myNBNode->getShape().indexOfClosest(positionAtOffset);
+            // get snap radius
+            const double snap_radius = myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.junctionGeometryPointRadius;
+            // check if we have to create a new index
+            if (positionAtOffset.distanceSquaredTo2D(shapeToMove[index]) > (snap_radius * snap_radius)) {
+                index = shapeToMove.insertAtClosest(positionAtOffset, true);
+            }
+            // return move operation for edit shape
+            return new GNEMoveOperation(this, myNBNode->getShape(), shapeToMove, index, {index});
         }
-    }
-    Position newPos = shape.positionAtOffset2D(offset);
-    // first check if vertex already exists in the inner geometry
-    for (int i = 0; i < (int)shape.size(); i++) {
-        if (shape[i].distanceTo2D(newPos) < myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.junctionGeometryPointRadius) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-
-void
-GNEJunction::moveJunctionShape(const Position& offset) {
-    // first obtain a copy of shapeBeforeMoving
-    PositionVector newShape = getShapeBeforeMoving();
-    if (moveEntireShape()) {
-        // move entire shape
-        newShape.add(offset);
     } else {
-        int geometryPointIndex = getGeometryPointIndex();
-        // if geometryPoint is -1, then we have to create a new geometry point
-        if (geometryPointIndex == -1) {
-            geometryPointIndex = newShape.insertAtClosest(getPosOverShapeBeforeMoving(), true);
-        }
-        // get last index
-        const int lastIndex = (int)newShape.size() - 1;
-        // check if we have to move first and last postion
-        if ((newShape.size() > 2) && (newShape.front() == newShape.back()) &&
-                ((geometryPointIndex == 0) || (geometryPointIndex == lastIndex))) {
-            // move first geometry point
-            newShape[0].add(offset);
-            // snap to grid
-            newShape[0] = myNet->getViewNet()->snapToActiveGrid(newShape[0]);
-            // set end geometry point
-            newShape[lastIndex] = newShape[0];
-        } else {
-            // move geometry point within newShape
-            newShape[geometryPointIndex].add(offset);
-            // snap to grid
-            newShape[geometryPointIndex] = myNet->getViewNet()->snapToActiveGrid(newShape[geometryPointIndex]);
-        }
+        // return junction position
+        return new GNEMoveOperation(this, myNBNode->getPosition());
     }
-    // set new shape
-    myNBNode->setCustomShape(newShape);
-    // update geometry
-    updateGeometry();
 }
 
 
-void
-GNEJunction::commitJunctionShapeChange(GNEUndoList* undoList) {
-    // get visualisation settings
-    auto& s = myNet->getViewNet()->getVisualisationSettings();
-    // restore original shape into shapeToCommit
-    PositionVector shapeToCommit = parse<PositionVector>(getAttribute(SUMO_ATTR_SHAPE));
-    // get geometryPoint radius
-    const double geometryPointRadius = s.neteditSizeSettings.junctionGeometryPointRadius * s.polySize.getExaggeration(s, this);
-    // remove double points
-    shapeToCommit.removeDoublePoints(geometryPointRadius);
-    // check if we have to merge start and end points
-    if ((shapeToCommit.front() != shapeToCommit.back()) && (shapeToCommit.front().distanceTo2D(shapeToCommit.back()) < geometryPointRadius)) {
-        shapeToCommit[0] = shapeToCommit.back();
-    }
-    // update geometry
-    updateGeometry();
-    // restore old geometry to allow change attribute (And restore shape if during movement a new point was created
-    myNBNode->setCustomShape(getShapeBeforeMoving());
-    // finish geometry moving
-    endJunctionShapeGeometryMoving();
-    // commit new shape
-    undoList->p_begin("moving " + toString(SUMO_ATTR_SHAPE) + " of " + getTagStr());
-    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_SHAPE, toString(shapeToCommit)));
-    undoList->p_end();
-}
-
-
-void
-GNEJunction::deleteJunctionShapeGeometryPoint(const Position& mousePosition, GNEUndoList* undoList) {
-    // get a copy of shape
-    PositionVector newShape = parse<PositionVector>(getAttribute(SUMO_ATTR_SHAPE));
-    // obtain index
-    const int index = getJunctionShapeVertexIndex(mousePosition, false);
-    // check index
-    if ((index != -1) && (newShape.size() > 3)) {
-        // remove geometry point
-        newShape.erase(newShape.begin() + index);
-        // set new shape
-        undoList->p_begin("delete geometry point of " + getTagStr());
-        undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_SHAPE, toString(newShape)));
-        undoList->p_end();
+void 
+GNEJunction::removeGeometryPoint(const Position clickedPosition, GNEUndoList* undoList) {
+    // edit depending if shape is being edited
+    if (isShapeEdited()) {
+        // get original shape
+        PositionVector shape = myNBNode->getShape();
+        // check shape size
+        if (shape.size() > 2) {
+            // obtain index
+            int index = shape.indexOfClosest(clickedPosition);
+            // get snap radius
+            const double snap_radius = myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.junctionGeometryPointRadius;
+            // check if we have to create a new index
+            if ((index != -1) && shape[index].distanceSquaredTo2D(clickedPosition) < (snap_radius * snap_radius)) {
+                // remove geometry point
+                shape.erase(shape.begin() + index);
+                // commit new shape
+                undoList->p_begin("remove geometry point of " + getTagStr());
+                undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_SHAPE, toString(shape)));
+                undoList->p_end();
+            }
+        }
     }
 }
 
@@ -274,6 +192,8 @@ GNEJunction::rebuildGNECrossings(bool rebuildNBNodeCrossings) {
                 myGNECrossings.erase(retrievedExists);
                 // update geometry of retrieved crossing
                 retrievedGNECrossing->updateGeometry();
+                // update boundary
+                retrievedGNECrossing->updateCenteringBoundary(false);
             } else {
                 // include reference to created GNECrossing
                 retrievedGNECrossing->incRef();
@@ -394,22 +314,26 @@ GNEJunction::getPopUpMenu(GUIMainWindow& app, GUISUMOAbstractView& parent) {
 }
 
 
-Boundary
-GNEJunction::getCenteringBoundary() const {
-    // Return Boundary depending if myMovingGeometryBoundary is initialised (important for move geometry)
-    if (myMovingGeometryBoundary.isInitialised()) {
-        return myMovingGeometryBoundary;
-    } else if (myNBNode->getShape().size() > 0) {
-        Boundary b = myNBNode->getShape().getBoxBoundary();
-        b.grow(10);
-        return b;
+void
+GNEJunction::updateCenteringBoundary(const bool updateGrid) {
+    // Remove object from net
+    if (updateGrid) {
+        myNet->removeGLObjectFromGrid(this);
+    }
+    // update boundary
+    if (myNBNode->getShape().size() > 0) {
+        myBoundary = myNBNode->getShape().getBoxBoundary();
     } else {
         // calculate boundary using EXTENT as size
         const double EXTENT = 2;
         Boundary b(myNBNode->getPosition().x() - EXTENT, myNBNode->getPosition().y() - EXTENT,
                    myNBNode->getPosition().x() + EXTENT, myNBNode->getPosition().y() + EXTENT);
-        b.grow(10);
-        return b;
+        myBoundary = b;
+    }
+    myBoundary.grow(10);
+    // add object into net
+    if (updateGrid) {
+        myNet->addGLObjectIntoGrid(this);
     }
 }
 
@@ -572,19 +496,19 @@ GNEJunction::drawGL(const GUIVisualizationSettings& s) const {
             // check if dotted contour has to be drawn
             if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
                 if (drawShape) {
-                    GNEGeometry::drawDottedContourClosedShape(true, s, myNBNode->getShape(), junctionExaggeration);
+                    GNEGeometry::drawDottedContourClosedShape(GNEGeometry::DottedContourType::INSPECT, s, myNBNode->getShape(), junctionExaggeration);
                 }
                 if (drawBubble) {
-                    GNEGeometry::drawDottedContourCircle(true, s, myNBNode->getCenter(), s.neteditSizeSettings.junctionBubbleRadius, junctionExaggeration);
+                    GNEGeometry::drawDottedContourCircle(GNEGeometry::DottedContourType::INSPECT, s, myNBNode->getCenter(), s.neteditSizeSettings.junctionBubbleRadius, junctionExaggeration);
                 }
             }
             // check if dotted contour has to be drawn
             if (s.drawDottedContour() || (myNet->getViewNet()->getFrontAttributeCarrier() == this)) {
                 if (drawShape) {
-                    GNEGeometry::drawDottedContourClosedShape(false, s, myNBNode->getShape(), junctionExaggeration);
+                    GNEGeometry::drawDottedContourClosedShape(GNEGeometry::DottedContourType::FRONT, s, myNBNode->getShape(), junctionExaggeration);
                 }
                 if (drawBubble) {
-                    GNEGeometry::drawDottedContourCircle(false, s, myNBNode->getCenter(), s.neteditSizeSettings.junctionBubbleRadius, junctionExaggeration);
+                    GNEGeometry::drawDottedContourCircle(GNEGeometry::DottedContourType::FRONT, s, myNBNode->getCenter(), s.neteditSizeSettings.junctionBubbleRadius, junctionExaggeration);
                 }
             }
         }
@@ -714,139 +638,15 @@ GNEJunction::selectTLS(bool selected) {
 
 
 void
-GNEJunction::startGeometryMoving(bool extendToNeighbors) {
-    // save current centering boundary
-    myMovingGeometryBoundary = getCenteringBoundary();
-    // save position
-    myMovingPosition = myNBNode->getPosition();
-    // First declare three sets with all affected GNEJunctions, GNEEdges and GNEConnections
-    std::set<GNEJunction*> affectedJunctions;
-    std::set<GNEEdge*> affectedEdges;
-    // Iterate over GNEEdges
-    for (const auto& edge : getChildEdges()) {
-        // Add source and destiny junctions
-        affectedJunctions.insert(edge->getParentJunctions().front());
-        affectedJunctions.insert(edge->getParentJunctions().back());
-        // Obtain neighbors of Junction source
-        for (const auto& junctionSourceEdge : edge->getParentJunctions().front()->getChildEdges()) {
-            affectedEdges.insert(junctionSourceEdge);
-        }
-        // Obtain neighbors of Junction destiny
-        for (const auto& junctionDestinyEdge : edge->getParentJunctions().back()->getChildEdges()) {
-            affectedEdges.insert(junctionDestinyEdge);
-        }
-    }
-    // Iterate over affected Junctions only if extendToNeighbors is enabled
-    if (extendToNeighbors) {
-        for (const auto& affectedJunction : affectedJunctions) {
-            // don't include this junction (to avoid start more than one times)
-            if (affectedJunction != this) {
-                // start geometry moving in edges
-                affectedJunction->startGeometryMoving(false);
-            }
-        }
-    }
-    // Iterate over affected Edges
-    for (const auto& edge : affectedEdges) {
-        // start geometry moving in edges
-        edge->startEdgeGeometryMoving(-1, false);
-    }
-}
-
-
-void
-GNEJunction::endGeometryMoving(bool extendToNeighbors) {
-    // check that endGeometryMoving was called only once
-    if (myMovingGeometryBoundary.isInitialised()) {
-        // Remove object from net
-        myNet->removeGLObjectFromGrid(this);
-        // reset myMovingGeometryBoundary
-        myMovingGeometryBoundary.reset();
-        // First declare three sets with all affected GNEJunctions, GNEEdges and GNEConnections
-        std::set<GNEJunction*> affectedJunctions;
-        std::set<GNEEdge*> affectedEdges;
-        // Iterate over GNEEdges
-        for (const auto& edge : getChildEdges()) {
-            // Add source and destiny junctions
-            affectedJunctions.insert(edge->getParentJunctions().front());
-            affectedJunctions.insert(edge->getParentJunctions().back());
-            // Obtain neighbors of Junction source
-            for (const auto& junctionSourceEdge : edge->getParentJunctions().front()->getChildEdges()) {
-                affectedEdges.insert(junctionSourceEdge);
-            }
-            // Obtain neighbors of Junction destiny
-            for (const auto& junctionDestinyEdge : edge->getParentJunctions().back()->getChildEdges()) {
-                affectedEdges.insert(junctionDestinyEdge);
-            }
-        }
-        // Iterate over affected Junctions
-        if (extendToNeighbors) {
-            for (const auto& junction : affectedJunctions) {
-                // don't include this junction (to avoid end it more than one times)
-                if (junction != this) {
-                    // end geometry moving in edges
-                    junction->endGeometryMoving(false);
-                }
-            }
-        }
-        // Iterate over affected Edges
-        for (const auto& affectedEdge : affectedEdges) {
-            if (!affectedEdge->isAttributeCarrierSelected()) {
-                // end geometry moving in edges
-                affectedEdge->endEdgeGeometryMoving();
-            }
-        }
-        // add object into grid again (using the new centering boundary)
-        myNet->addGLObjectIntoGrid(this);
-        // update geometry of affected junctions
-        if (extendToNeighbors) {
-            for (const auto& junction : affectedJunctions) {
-                junction->updateGeometry();
-            }
-        }
-    }
-}
-
-
-void
-GNEJunction::moveGeometry(const Position& offset) {
-    // calculate new position
-    Position newPosition = myMovingPosition;
-    newPosition.add(offset);
-    // filtern position using snap to active grid
-    newPosition = myNet->getViewNet()->snapToActiveGrid(newPosition, offset.z() == 0);
-    // move junction geometry without updating grid
-    moveJunctionGeometry(newPosition);
-}
-
-
-void
-GNEJunction::commitGeometryMoving(GNEUndoList* undoList) {
-    // first end geometry point
-    endGeometryMoving();
-    if (isValid(SUMO_ATTR_POSITION, toString(myNBNode->getPosition()))) {
-        undoList->p_begin("position of " + getTagStr());
-        undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(myNBNode->getPosition()), toString(myMovingPosition)));
-        undoList->p_end();
-    } else {
-        // tried to set an invalid position, revert back to the previous one
-        moveJunctionGeometry(myMovingPosition);
-    }
-}
-
-
-void
 GNEJunction::invalidateShape() {
     if (!myNBNode->hasCustomShape()) {
         if (myNBNode->myPoly.size() > 0) {
             // write GL Debug
             WRITE_GLDEBUG("<-- Invalidating shape of junction '" + getID() + "' -->");
-            // remove Juntion from grid
-            myNet->removeGLObjectFromGrid(this);
             // clear poly
             myNBNode->myPoly.clear();
-            // add Juntion into grid
-            myNet->addGLObjectIntoGrid(this);
+            // update centering boundary
+            updateCenteringBoundary(true);
         }
         myNet->requireRecompute();
     }
@@ -1519,11 +1319,9 @@ GNEJunction::drawTLSIcon(const GUIVisualizationSettings& s) const {
 
 void
 GNEJunction::drawJunctionChildren(const GUIVisualizationSettings& s) const {
-    // draw crossings only if junction isn't being moved
-    if (!myMovingGeometryBoundary.isInitialised()) {
-        for (const auto& crossing : myGNECrossings) {
-            crossing->drawGL(s);
-        }
+    // draw crossings
+    for (const auto& crossing : myGNECrossings) {
+        crossing->drawGL(s);
     }
     // draw connections and route elements connections (Only for incoming edges)
     for (const auto& incomingEdge : myGNEIncomingEdges) {
@@ -1577,14 +1375,12 @@ GNEJunction::setAttribute(SumoXMLAttr key, const std::string& value) {
             break;
         }
         case SUMO_ATTR_POSITION: {
-            // start geometry moving (because new position affect all junction children)
-            startGeometryMoving();
-            // set new position in NBNode without updating grid
-            moveJunctionGeometry(parse<Position>(value));
-            // end geometry moving
-            endGeometryMoving();
+            // set new position in NBNode updating edge boundaries
+            moveJunctionGeometry(parse<Position>(value), true);
             // mark this connections and all of the junction's Neighbours as deprecated
             markConnectionsDeprecated(true);
+            // update centering boundary and grid
+            updateCenteringBoundary(true);
             break;
         }
         case GNE_ATTR_MODIFICATION_STATUS:
@@ -1599,15 +1395,12 @@ GNEJunction::setAttribute(SumoXMLAttr key, const std::string& value) {
             myLogicStatus = value;
             break;
         case SUMO_ATTR_SHAPE: {
-            // start geometry moving (because new position affect all junction children)
-            startGeometryMoving();
             // set new shape (without updating grid)
-            const PositionVector shape = parse<PositionVector>(value);
-            myNBNode->setCustomShape(shape);
-            // end geometry moving
-            endGeometryMoving();
+            myNBNode->setCustomShape(parse<PositionVector>(value));
             // mark this connections and all of the junction's Neighbours as deprecated
             markConnectionsDeprecated(true);
+            // update centering boundary and grid
+            updateCenteringBoundary(true);
             break;
         }
         case SUMO_ATTR_RADIUS: {
@@ -1643,6 +1436,37 @@ GNEJunction::setAttribute(SumoXMLAttr key, const std::string& value) {
             break;
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
+    }
+}
+
+
+void 
+GNEJunction::setMoveShape(const GNEMoveResult& moveResult) {
+    // set new position in NBNode without updating grid
+    if (isShapeEdited()) {
+        // set new shape
+        myNBNode->setCustomShape(moveResult.shapeToUpdate);
+    } else if (moveResult.shapeToUpdate.size() > 0) {
+        moveJunctionGeometry(moveResult.shapeToUpdate.front(), false);
+    }
+}
+
+
+void 
+GNEJunction::commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList) {
+    // make sure that newShape isn't empty
+    if (moveResult.shapeToUpdate.size() > 0) {
+        // check if we're editing a shape
+        if (isShapeEdited()) {
+            // commit new shape
+            undoList->p_begin("moving " + toString(SUMO_ATTR_SHAPE) + " of " + getTagStr());
+            undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_SHAPE, toString(moveResult.shapeToUpdate)));
+            undoList->p_end();
+        } else {
+            undoList->p_begin("position of " + getTagStr());
+            undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(moveResult.shapeToUpdate.front())));
+            undoList->p_end();
+        }
     }
 }
 
@@ -1726,7 +1550,7 @@ GNEJunction::checkMissingConnections() {
 
 
 void
-GNEJunction::moveJunctionGeometry(const Position& pos) {
+GNEJunction::moveJunctionGeometry(const Position& pos, const bool updateEdgeBoundaries) {
     // obtain NBNode position
     const Position orig = myNBNode->getPosition();
     // reinit NBNode
@@ -1754,6 +1578,10 @@ GNEJunction::moveJunctionGeometry(const Position& pos) {
     }
     // Iterate over affected Edges
     for (const auto& affectedEdge : affectedEdges) {
+        // update edge boundaries
+        if (updateEdgeBoundaries) {
+            affectedEdge->updateCenteringBoundary(true);
+        }
         // Update edge geometry
         affectedEdge->updateGeometry();
     }

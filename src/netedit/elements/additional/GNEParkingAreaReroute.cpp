@@ -32,24 +32,21 @@
 
 GNEParkingAreaReroute::GNEParkingAreaReroute(GNEAdditional* rerouterIntervalParent, GNEAdditional* newParkingArea, double probability, bool visible):
     GNEAdditional(rerouterIntervalParent->getNet(), GLO_REROUTER, SUMO_TAG_PARKING_ZONE_REROUTE, "", false,
-{}, {}, {}, {rerouterIntervalParent, newParkingArea}, {}, {}, {}, {}),
-myProbability(probability),
-myVisible(visible) {
+        {}, {}, {}, {rerouterIntervalParent, newParkingArea}, {}, {}, {}, {}),
+    myProbability(probability),
+    myVisible(visible) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
 GNEParkingAreaReroute::~GNEParkingAreaReroute() {}
 
 
-void
-GNEParkingAreaReroute::moveGeometry(const Position&) {
-    // This additional cannot be moved
-}
-
-
-void
-GNEParkingAreaReroute::commitGeometryMoving(GNEUndoList*) {
-    // This additional cannot be moved
+GNEMoveOperation* 
+GNEParkingAreaReroute::getMoveOperation(const double /*shapeOffset*/) {
+    // GNEParkingAreaReroutes cannot be moved
+    return nullptr;
 }
 
 
@@ -59,15 +56,10 @@ GNEParkingAreaReroute::updateGeometry() {
 }
 
 
-Position
-GNEParkingAreaReroute::getPositionInView() const {
-    return getParentAdditionals().at(0)->getPositionInView();
-}
-
-
-Boundary
-GNEParkingAreaReroute::getCenteringBoundary() const {
-    return getParentAdditionals().at(0)->getCenteringBoundary();
+void 
+GNEParkingAreaReroute::updateCenteringBoundary(const bool /*updateGrid*/) {
+    // use boundary of parent element
+    myBoundary = getParentAdditionals().front()->getCenteringBoundary();
 }
 
 
@@ -196,6 +188,18 @@ GNEParkingAreaReroute::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void
+GNEParkingAreaReroute::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // nothing to do
+}
+
+
+void 
+GNEParkingAreaReroute::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // nothing to do
 }
 
 

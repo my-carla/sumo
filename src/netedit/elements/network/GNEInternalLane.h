@@ -63,6 +63,15 @@ public:
     Position getPositionInView() const;
     /// @}
 
+    /// @name Functions related with move elements
+    /// @{
+    /// @brief get move operation for the given shapeOffset (can be nullptr)
+    GNEMoveOperation* getMoveOperation(const double shapeOffset);
+
+    /// @brief remove geometry point in the clicked position
+    void removeGeometryPoint(const Position clickedPosition, GNEUndoList* undoList);
+    /// @}
+
     /// @name inherited from GUIGlObject
     /// @{
     /**@brief Returns an own popup-menu
@@ -83,12 +92,8 @@ public:
      */
     GUIParameterTableWindow* getParameterWindow(GUIMainWindow& app, GUISUMOAbstractView& parent);
 
-    /**@brief Returns the boundary to which the view shall be centered in order to show the object
-     *
-     * @return The boundary the object is within
-     * @see GUIGlObject::getCenteringBoundary
-     */
-    Boundary getCenteringBoundary() const;
+    /// @brief update centering boundary (implies change in RTREE)
+    void updateCenteringBoundary(const bool updateGrid);
 
     /**@brief Draws the object
      * @param[in] s The settings for the current view (may influence drawing)
@@ -179,6 +184,12 @@ private:
 private:
     /// @brief set attribute after validation
     void setAttribute(SumoXMLAttr key, const std::string& value);
+
+    /// @brief set move shape
+    void setMoveShape(const GNEMoveResult& moveResult);
+
+    /// @brief commit move shape
+    void commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList);
 
     /// @brief Invalidated copy constructor.
     GNEInternalLane(const GNEInternalLane&) = delete;

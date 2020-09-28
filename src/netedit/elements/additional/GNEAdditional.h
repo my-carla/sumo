@@ -23,6 +23,7 @@
 #include <netedit/elements/GNEHierarchicalElement.h>
 #include <netedit/elements/GNEPathElements.h>
 #include <netedit/GNEGeometry.h>
+#include <netedit/GNEMoveElement.h>
 #include <utils/common/Parameterised.h>
 #include <utils/geom/PositionVector.h>
 #include <utils/gui/globjects/GUIGlObject.h>
@@ -43,7 +44,7 @@ class GUIGLObjectPopupMenu;
  * @class GNEAdditional
  * @brief An Element which don't belongs to GNENet but has influency in the simulation
  */
-class GNEAdditional : public GUIGlObject, public Parameterised, public GNEHierarchicalElement, public GNEPathElements  {
+class GNEAdditional : public GUIGlObject, public Parameterised, public GNEHierarchicalElement, public GNEPathElements, public GNEMoveElement  {
 
 public:
     /**@brief Constructor
@@ -100,6 +101,14 @@ public:
     /// @brief Destructor
     virtual ~GNEAdditional();
 
+    /**@brief get move operation for the given shapeOffset
+    * @note returned GNEMoveOperation can be nullptr
+    */
+    virtual GNEMoveOperation* getMoveOperation(const double shapeOffset) = 0;
+
+    /// @brief remove geometry point in the clicked position (Currently unused in shapes)
+    void removeGeometryPoint(const Position clickedPosition, GNEUndoList* undoList);
+
     /// @brief get ID
     const std::string& getID() const;
 
@@ -138,32 +147,17 @@ public:
      */
     virtual void openAdditionalDialog();
 
-    /// @name Functions related with geometry of element
-    /// @{
-    /// @brief begin movement (used when user click over additional to start a movement, to avoid problems with GL Tree)
-    void startGeometryMoving();
-
-    /// @brief begin movement (used when user click over additional to start a movement, to avoid problems with GL Tree)
-    void endGeometryMoving();
-
-    /**@brief change the position of the element geometry without saving in undoList
-     * @param[in] offset Position used for calculate new position of geometry without updating RTree
-     */
-    virtual void moveGeometry(const Position& offset) = 0;
-
-    /**@brief commit geometry changes in the attributes of an element after use of moveGeometry(...)
-    * @param[in] undoList The undoList on which to register changes
-    */
-    virtual void commitGeometryMoving(GNEUndoList* undoList) = 0;
-
     /// @brief update pre-computed geometry information
     virtual void updateGeometry() = 0;
 
     /// @brief Returns position of additional in view
-    virtual Position getPositionInView() const = 0;
+    Position getPositionInView() const;
 
     /// @brief Returns the boundary to which the view shall be centered in order to show the object
-    virtual Boundary getCenteringBoundary() const = 0;
+    Boundary getCenteringBoundary() const;
+
+    /// @brief update centering boundary (implies change in RTREE)
+    virtual void updateCenteringBoundary(const bool updateGrid) = 0;
 
     /// @brief split geometry
     virtual void splitEdgeGeometry(const double splitPosition, const GNENetworkElement* originalElement, const GNENetworkElement* newElement, GNEUndoList* undoList) = 0;
@@ -278,63 +272,8 @@ public:
     /// @}
 
 protected:
-
-    /// @brief struct for pack all variables related with additional move
-    struct AdditionalMove {
-        /// @brief boundary used during moving of elements (to avoid insertion in RTREE
-        Boundary movingGeometryBoundary;
-
-        /// @brief value for saving first original position over lane before moving
-        Position originalViewPosition;
-
-        /// @brief value for saving first original position over lane before moving
-        std::string firstOriginalLanePosition;
-
-        /// @brief value for saving second original position over lane before moving
-        std::string secondOriginalPosition;
-
-    private:
-        /// @brief Invalidated assignment operator
-        AdditionalMove& operator=(const AdditionalMove& other) = delete;
-
-    };
-
-    /// @brief struct for pack all variables and functions related with Block Icon
-    struct BlockIcon {
-        /// @brief constructor
-        BlockIcon(GNEAdditional* additional);
-
-        /// @brief update position and rotation using additional geometry
-        void updatePositionAndRotation();
-
-        /// @brief set offset
-        void setOffset(const double x, const double y);
-
-        /// @brief draw lock icon
-        void drawIcon(const GUIVisualizationSettings& s, const double exaggeration, const double size = 0.5) const;
-
-        /// @brief get position of the block icon
-        const Position& getPosition() const;
-
-        /// @brief get rotation of the block icon
-        double getRotation() const;
-
-    private:
-        /// @brief pointer to parent additional
-        const GNEAdditional* myAdditional;
-
-        /// @brief position of the block icon
-        Position myPosition;
-
-        /// @brief The rotation of the block icon
-        double myRotation;
-
-        /// @brief The offSet of the block icon
-        Position myOffset;
-
-        /// @brief Invalidated assignment operator
-        BlockIcon& operator=(const BlockIcon& other) = delete;
-    };
+    /// @brief Additional Boundary
+    Boundary myBoundary;
 
     /// @brief geometry to be precomputed in updateGeometry(...)
     GNEGeometry::Geometry myAdditionalGeometry;
@@ -342,17 +281,11 @@ protected:
     /// @brief segment geometry to be precomputed in updateGeometry(...) (used by E2Multilane)
     GNEGeometry::SegmentGeometry myAdditionalSegmentGeometry;
 
-    /// @brief variable AdditionalMove
-    AdditionalMove myMove;
-
     /// @brief name of additional
     std::string myAdditionalName;
 
     /// @brief boolean to check if additional element is blocked (i.e. cannot be moved with mouse)
     bool myBlockMovement;
-
-    /// @brief variable BlockIcon
-    BlockIcon myBlockIcon;
 
     /// @brief pointer to special color (used for drawing Additional with a certain color, mainly used for selections)
     const RGBColor* mySpecialColor;
@@ -403,6 +336,12 @@ private:
 
     /// @brief method for setting the attribute and nothing else (used in GNEChange_Attribute)
     virtual void setAttribute(SumoXMLAttr key, const std::string& value) = 0;
+
+    /// @brief set move shape
+    virtual void setMoveShape(const GNEMoveResult& moveResult) = 0;
+
+    /// @brief commit move shape
+    virtual void commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList) = 0;
 
     /// @brief method for enabling the attribute and nothing else (used in GNEChange_EnableAttribute)
     void setEnabledAttribute(const int enabledAttributes);

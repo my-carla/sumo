@@ -48,7 +48,6 @@ GNEAdditional::GNEAdditional(const std::string& id, GNENet* net, GUIGlObjectType
     GNEPathElements(this),
     myAdditionalName(additionalName),
     myBlockMovement(blockMovement),
-    myBlockIcon(this),
     mySpecialColor(nullptr) {
 }
 
@@ -67,12 +66,17 @@ GNEAdditional::GNEAdditional(GNENet* net, GUIGlObjectType type, SumoXMLTag tag, 
     GNEPathElements(this),
     myAdditionalName(additionalName),
     myBlockMovement(blockMovement),
-    myBlockIcon(this),
     mySpecialColor(nullptr) {
 }
 
 
 GNEAdditional::~GNEAdditional() {}
+
+
+void 
+GNEAdditional::removeGeometryPoint(const Position /*clickedPosition*/, GNEUndoList* /*undoList*/) {
+    // currently there isn't additionals with removable geometry points
+}
 
 
 const std::string&
@@ -235,59 +239,15 @@ GNEAdditional::openAdditionalDialog() {
 }
 
 
-void
-GNEAdditional::startGeometryMoving() {
-    // only move if additional is drawable
-    if (myTagProperty.isDrawable()) {
-        // always save original position over view
-        myMove.originalViewPosition = getPositionInView();
-        // check if position over lane or lanes has to be saved
-        if (myTagProperty.hasAttribute(SUMO_ATTR_LANE)) {
-            if (myTagProperty.canMaskStartEndPos()) {
-                // obtain start and end position
-                myMove.firstOriginalLanePosition = getAttribute(SUMO_ATTR_STARTPOS);
-                myMove.secondOriginalPosition = getAttribute(SUMO_ATTR_ENDPOS);
-            } else {
-                // obtain position attribute
-                myMove.firstOriginalLanePosition = getAttribute(SUMO_ATTR_POSITION);
-            }
-        } else if (myTagProperty.hasAttribute(SUMO_ATTR_LANES) &&
-                   myTagProperty.hasAttribute(SUMO_ATTR_POSITION) &&
-                   myTagProperty.hasAttribute(SUMO_ATTR_ENDPOS)) {
-            // obtain start and end position
-            myMove.firstOriginalLanePosition = getAttribute(SUMO_ATTR_POSITION);
-            myMove.secondOriginalPosition = getAttribute(SUMO_ATTR_ENDPOS);
-        }
-        // save current centering boundary if element is placed in RTree
-        if (myTagProperty.isPlacedInRTree()) {
-            myMove.movingGeometryBoundary = getCenteringBoundary();
-        }
-        // start geometry in all children
-        for (const auto& i : getChildDemandElements()) {
-            i->startGeometryMoving();
-        }
-    }
+Boundary 
+GNEAdditional::getCenteringBoundary() const {
+    return myBoundary;
 }
 
 
-void
-GNEAdditional::endGeometryMoving() {
-    // check that endGeometryMoving was called only once
-    if (myTagProperty.isDrawable()) {
-        // check if object must be placed in RTREE
-        if (myTagProperty.isPlacedInRTree()) {
-            // Remove object from net
-            myNet->removeGLObjectFromGrid(this);
-            // reset myMovingGeometryBoundary
-            myMove.movingGeometryBoundary.reset();
-            // add object into grid again (using the new centering boundary)
-            myNet->addGLObjectIntoGrid(this);
-        }
-        // end geometry in all children
-        for (const auto& i : getChildDemandElements()) {
-            i->endGeometryMoving();
-        }
-    }
+Position 
+GNEAdditional::getPositionInView() const {
+    return myBoundary.getCenter();
 }
 
 
@@ -425,13 +385,13 @@ GNEAdditional::drawPartialGL(const GUIVisualizationSettings& s, const GNELane* l
                     // draw partial segment
                     if (getParentLanes().front() == lane) {
                         // draw front dotted contour
-                        GNEGeometry::drawDottedContourLane(true, s, GNEGeometry::DottedGeometry(s, segment.getShape(), false), E2DetectorWidth, true, false);
+                        GNEGeometry::drawDottedContourLane(GNEGeometry::DottedContourType::INSPECT, s, GNEGeometry::DottedGeometry(s, segment.getShape(), false), E2DetectorWidth, true, false);
                     } else if (getParentLanes().back() == lane) {
                         // draw back dotted contour
-                        GNEGeometry::drawDottedContourLane(true, s, GNEGeometry::DottedGeometry(s, segment.getShape(), false), E2DetectorWidth, false, true);
+                        GNEGeometry::drawDottedContourLane(GNEGeometry::DottedContourType::INSPECT, s, GNEGeometry::DottedGeometry(s, segment.getShape(), false), E2DetectorWidth, false, true);
                     } else {
                         // draw dotted contour
-                        GNEGeometry::drawDottedContourLane(true, s, lane->getDottedLaneGeometry(), E2DetectorWidth, false, false);
+                        GNEGeometry::drawDottedContourLane(GNEGeometry::DottedContourType::INSPECT, s, lane->getDottedLaneGeometry(), E2DetectorWidth, false, false);
                     }
                 }
             }
@@ -475,105 +435,10 @@ GNEAdditional::drawPartialGL(const GUIVisualizationSettings& s, const GNELane* f
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
             // draw lane2lane dotted geometry
             if (fromLane->getLane2laneConnections().exist(toLane)) {
-                GNEGeometry::drawDottedContourLane(true, s, fromLane->getLane2laneConnections().getLane2laneDottedGeometry(toLane), E2DetectorWidth, false, false);
+                GNEGeometry::drawDottedContourLane(GNEGeometry::DottedContourType::INSPECT, s, fromLane->getLane2laneConnections().getLane2laneDottedGeometry(toLane), E2DetectorWidth, false, false);
             }
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// GNEAdditional::BlockIcon - methods
-// ---------------------------------------------------------------------------
-
-GNEAdditional::BlockIcon::BlockIcon(GNEAdditional* additional) :
-    myAdditional(additional),
-    myRotation(0) {}
-
-
-void
-GNEAdditional::BlockIcon::updatePositionAndRotation() {
-    if (myAdditional->getAdditionalGeometry().getShape().size() > 1) {
-        const double middlePos = myAdditional->getAdditionalGeometry().getShape().length2D() * 0.5;
-        // calculate position and rotation
-        myPosition = myAdditional->getAdditionalGeometry().getShape().positionAtOffset2D(middlePos);
-        myRotation = myAdditional->getAdditionalGeometry().getShape().rotationDegreeAtOffset(middlePos);
-    } else {
-        // get position and rotation of additional geometry
-        myPosition = myAdditional->getAdditionalGeometry().getPosition();
-        myRotation = myAdditional->getAdditionalGeometry().getRotation();
-    }
-}
-
-
-void
-GNEAdditional::BlockIcon::setOffset(const double x, const double y) {
-    myOffset.setx(x);
-    myOffset.sety(y);
-}
-
-
-void
-GNEAdditional::BlockIcon::drawIcon(const GUIVisualizationSettings& s, const double exaggeration, const double size) const {
-    // check if block icon can be draw
-    if ((myPosition != Position::INVALID) &&
-            !s.drawForPositionSelection && !s.drawForRectangleSelection &&
-            s.drawDetail(s.detailSettings.lockIcon, exaggeration) &&
-            myAdditional->myNet->getViewNet()->showLockIcon()) {
-        // get texture
-        GUIGlID lockTexture = 0;
-        // Draw icon depending of the state of additional
-        if (myAdditional->drawUsingSelectColor()) {
-            if (!myAdditional->getTagProperty().canBlockMovement()) {
-                // Draw not movable texture if additional isn't movable and is selected
-                lockTexture = GUITextureSubSys::getTexture(GNETEXTURE_NOTMOVINGSELECTED);
-            } else if (myAdditional->myBlockMovement) {
-                // Draw lock texture if additional is movable, is blocked and is selected
-                lockTexture = GUITextureSubSys::getTexture(GNETEXTURE_LOCKSELECTED);
-            } else {
-                // Draw empty texture if additional is movable, isn't blocked and is selected
-                lockTexture = GUITextureSubSys::getTexture(GNETEXTURE_EMPTYSELECTED);
-            }
-        } else {
-            if (!myAdditional->getTagProperty().canBlockMovement()) {
-                // Draw not movable texture if additional isn't movable
-                lockTexture = GUITextureSubSys::getTexture(GNETEXTURE_NOTMOVING);
-            } else if (myAdditional->myBlockMovement) {
-                // Draw lock texture if additional is movable and is blocked
-                lockTexture = GUITextureSubSys::getTexture(GNETEXTURE_LOCK);
-            } else {
-                // Draw empty texture if additional is movable and isn't blocked
-                lockTexture = GUITextureSubSys::getTexture(GNETEXTURE_EMPTY);
-            }
-        }
-        // Start pushing matrix
-        glPushMatrix();
-        // Traslate to middle of shape
-        glTranslated(myPosition.x(), myPosition.y(), 0.1);
-        // Set draw color
-        glColor3d(1, 1, 1);
-        // Rotate depending of rotation
-        glRotated((myRotation * -1) + 90, 0, 0, 1);
-        // Traslate depending of the offset
-        glTranslated(myOffset.x(), myOffset.y(), 0);
-        // Rotate again
-        glRotated(180, 0, 0, 1);
-        // Draw lock icon
-        GUITexturesHelper::drawTexturedBox(lockTexture, size);
-        // Pop matrix
-        glPopMatrix();
-    }
-}
-
-
-const Position&
-GNEAdditional::BlockIcon::getPosition() const {
-    return myPosition;
-}
-
-
-double
-GNEAdditional::BlockIcon::getRotation() const {
-    return myRotation;
 }
 
 // ---------------------------------------------------------------------------
@@ -614,7 +479,14 @@ GNEAdditional::isValidDetectorID(const std::string& newID) const {
 void
 GNEAdditional::drawAdditionalName(const GUIVisualizationSettings& s) const {
     if (s.addFullName.show && (myAdditionalName != "") && !s.drawForRectangleSelection && !s.drawForPositionSelection) {
-        GLHelper::drawText(myAdditionalName, myBlockIcon.getPosition(), GLO_MAX - getType(), s.addFullName.scaledSize(s.scale), s.addFullName.color, myBlockIcon.getRotation());
+        // calculate middle point
+        const double middlePoint = (myAdditionalGeometry.getShape().length2D() * 0.5);
+        // calculate position
+        const Position pos = (myAdditionalGeometry.getShape().size() == 1)? myAdditionalGeometry.getShape().front() : myAdditionalGeometry.getShape().positionAtOffset2D(middlePoint);
+        // calculate rotation
+        const double rot = (myAdditionalGeometry.getShape().size() == 1)? myAdditionalGeometry.getShapeRotations().front() : myAdditionalGeometry.getShape().rotationDegreeAtOffset(middlePoint);
+        // get texture
+        GLHelper::drawText(myAdditionalName, pos, GLO_MAX - getType(), s.addFullName.scaledSize(s.scale), s.addFullName.color, rot);
     }
 }
 

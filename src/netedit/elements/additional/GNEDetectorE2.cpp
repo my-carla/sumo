@@ -36,15 +36,16 @@
 
 GNEDetectorE2::GNEDetectorE2(const std::string& id, GNELane* lane, GNENet* net, double pos, double length, const std::string& freq, const std::string& trafficLight, const std::string& filename,
                              const std::string& vehicleTypes, const std::string& name, SUMOTime timeThreshold, double speedThreshold, double jamThreshold, bool friendlyPos, bool blockMovement) :
-    GNEDetector(id, net, GLO_E2DETECTOR, SUMO_TAG_E2DETECTOR, pos, freq, filename, vehicleTypes, name, friendlyPos, blockMovement, {
-    lane
-}),
-myLength(length),
-myEndPositionOverLane(0.),
-myTimeThreshold(timeThreshold),
-mySpeedThreshold(speedThreshold),
-myJamThreshold(jamThreshold),
-myTrafficLight(trafficLight) {
+    GNEDetector(id, net, GLO_E2DETECTOR, SUMO_TAG_E2DETECTOR, pos, freq, filename, vehicleTypes, name, friendlyPos, blockMovement,
+        {lane}),
+    myLength(length),
+    myEndPositionOverLane(0.),
+    myTimeThreshold(timeThreshold),
+    mySpeedThreshold(speedThreshold),
+    myJamThreshold(jamThreshold),
+    myTrafficLight(trafficLight) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -57,6 +58,8 @@ GNEDetectorE2::GNEDetectorE2(const std::string& id, std::vector<GNELane*> lanes,
     mySpeedThreshold(speedThreshold),
     myJamThreshold(jamThreshold),
     myTrafficLight(trafficLight) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -187,9 +190,9 @@ GNEDetectorE2::fixAdditionalProblem() {
     }
 }
 
-
+/*
 void
-GNEDetectorE2::moveGeometry(const Position& offset) {
+GNEDetectorE2::mov eGeometry(const Position& offset) {
     // Calculate new position using old position
     Position newPosition = myMove.originalViewPosition;
     newPosition.add(offset);
@@ -240,7 +243,7 @@ GNEDetectorE2::commitGeometryMoving(GNEUndoList* undoList) {
         undoList->p_end();
     }
 }
-
+*/
 
 void
 GNEDetectorE2::updateGeometry() {
@@ -279,10 +282,6 @@ GNEDetectorE2::updateGeometry() {
     } else {
         // Cut shape using as delimitators fixed start position and fixed end position
         myAdditionalGeometry.updateGeometry(getParentLanes().front()->getLaneShape(), startPosFixed * getParentLanes().front()->getLengthGeometryFactor(), endPosFixed * getParentLanes().back()->getLengthGeometryFactor());
-        // update block icon position
-        myBlockIcon.updatePositionAndRotation();
-        // Set offset of the block icon
-        myBlockIcon.setOffset(1, 0);
     }
 }
 
@@ -323,8 +322,8 @@ GNEDetectorE2::drawGL(const GUIVisualizationSettings& s) const {
         if (s.drawDetail(s.detailSettings.detectorDetails, E2Exaggeration)) {
             // draw E2 Logo
             drawDetectorLogo(s, E2Exaggeration, "E2", textColor);
-            // Show Lock icon depending of the Edit mode
-            myBlockIcon.drawIcon(s, E2Exaggeration);
+            // draw lock icon
+            GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, E2Exaggeration, 1, 0, true);
         }
         // pop layer matrix
         glPopMatrix();
@@ -336,10 +335,10 @@ GNEDetectorE2::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedContourShape(true, s, myAdditionalGeometry.getShape(), s.detectorSettings.E2Width, E2Exaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape(), s.detectorSettings.E2Width, E2Exaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedContourShape(false, s, myAdditionalGeometry.getShape(), s.detectorSettings.E2Width, E2Exaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape(), s.detectorSettings.E2Width, E2Exaggeration);
         }
     }
 }

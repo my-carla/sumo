@@ -31,6 +31,7 @@
 #include <utils/gui/windows/GUISUMOAbstractView.h>
 #include <utils/gui/windows/GUISUMOAbstractView.h>
 
+#include "GNEGeometry.h"
 
 // ===========================================================================
 // enum
@@ -133,6 +134,8 @@ class GNENet;
 class GNEUndoList;
 class GNEViewNet;
 class GNEViewParent;
+class GNEMoveElement;
+class GNEMoveOperation;
 // network elements
 class GNENetworkElement;
 class GNEJunction;
@@ -374,30 +377,36 @@ struct GNEViewNetHelper {
         ObjectsUnderCursor& operator=(const ObjectsUnderCursor&) = delete;
     };
 
-    /// @brief class used to group all variables related with key pressed after certain events
-    struct KeyPressed {
+    /// @brief class used to group all variables related with mouse buttons and key pressed after certain events
+    struct MouseButtonKeyPressed {
 
         /// @brief constructor
-        KeyPressed();
+        MouseButtonKeyPressed();
 
-        /// @brief update status of KeyPressed
+        /// @brief update status of MouseButtonKeyPressed during current event
         void update(void* eventData);
 
-        /// @brief check if SHIFT key was pressed during click
+        /// @brief check if SHIFT is pressed during current event
         bool shiftKeyPressed() const;
 
-        /// @brief check if CONTROL key was pressed during click
+        /// @brief check if CONTROL is pressed during current event
         bool controlKeyPressed() const;
 
+        /// @brief check if mouse left button is pressed during current event
+        bool mouseLeftButtonPressed() const;
+
+        /// @brief check if mouse right button is pressed during current event
+        bool mouseRightButtonPressed() const;
+
     private:
-        /// @brief information of event
+        /// @brief information of event (must be updated)
         FXEvent* myEventInfo;
 
         /// @brief Invalidated copy constructor.
-        KeyPressed(const KeyPressed&) = delete;
+        MouseButtonKeyPressed(const MouseButtonKeyPressed&) = delete;
 
         /// @brief Invalidated assignment operator.
-        KeyPressed& operator=(const KeyPressed&) = delete;
+        MouseButtonKeyPressed& operator=(const MouseButtonKeyPressed&) = delete;
     };
 
     /// @brief struct used to group all variables related with save elements
@@ -828,29 +837,14 @@ struct GNEViewNetHelper {
         bool beginMoveSingleElementDemandMode();
 
         /// @brief move single element in Network AND Demand mode
-        void moveSingleElement();
+        void moveSingleElement(const bool mouseLeftButtonPressed);
 
         /// @brief finish moving single elements in Network AND Demand mode
         void finishMoveSingleElement();
 
     private:
-        /// @brief calculate network element movement values (Position, Index, etc.)
-        bool calculateJunctionValues();
-
-        /// @brief calculate crossing element movement values (Position, Index, etc.)
-        bool calculateCrossingValues();
-
-        /// @brief calculate connection element movement values (Position, Index, etc.)
-        bool calculateConnectionValues();
-
-        /// @brief calculate Poly movement values (Position, Index, etc.)
-        bool calculatePolyValues();
-
-        /// @brief calculate Edge movement values (Position, Index, etc.)
-        bool calculateEdgeValues();
-
-        /// @brief calculate TAZ movement values (Position, Index, etc.)
-        bool calculateTAZValues();
+        /// @brief calculate move operation for shape
+        bool calculateMoveOperationShape(GNEMoveElement* moveElement, const PositionVector &shape, const double radius);
 
         /// @brief pointer to net
         GNEViewNet* myViewNet;
@@ -858,38 +852,14 @@ struct GNEViewNetHelper {
         /// @brief relative position of Clicked Position regarding to originalGeometryPointPosition (Used when user doesn't click exactly over the center of element)
         Position myRelativeClickedPosition;
 
-        /// @brief bool to indicate that startPos of an edge is being moved
-        bool myMovingStartPos;
-
-        /// @brief bool to indicate that end pos of an edge is being moved
-        bool myMovingEndPos;
-
-        /// @brief the junction to be moved
-        GNEJunction* myJunctionToMove;
-
-        /// @brief the crossing to be moved.
-        GNECrossing* myCrossingToMove;
-
-        /// @brief the connection to be moved.
-        GNEConnection* myConnectionToMove;
-
-        /// @brief the edge of which geometry is being moved
-        GNEEdge* myEdgeToMove;
-
-        /// @brief the poly of which geometry is being moved
-        GNEPoly* myPolyToMove;
-
-        /// @brief the poi which position is being moved
-        GNEPOI* myPOIToMove;
-
         /// @brief the additional element which position is being moved
         GNEAdditional* myAdditionalToMove;
 
         /// @brief the demand element which position is being moved
         GNEDemandElement* myDemandElementToMove;
 
-        /// @brief the TAZ element which their Shape is being moved (it's the only additional with a shape instead a position)
-        GNETAZ* myTAZElementToMove;
+        /// @brief move operations
+        std::vector<GNEMoveOperation*> myMoveOperations;
     };
 
     /// @brief struct used to group all variables related with movement of groups of elements
@@ -899,7 +869,7 @@ struct GNEViewNetHelper {
         MoveMultipleElementValues(GNEViewNet* viewNet);
 
         /// @brief begin move selection
-        void beginMoveSelection(GNEAttributeCarrier* originAC);
+        void beginMoveSelection();
 
         /// @brief move selection
         void moveSelection();
@@ -910,6 +880,13 @@ struct GNEViewNetHelper {
         /// @brief check if currently there is element being moved
         bool isMovingSelection() const;
 
+    protected:
+        /// @brief calculate junction selection
+        void calculateJunctionSelection();
+
+        /// @brief calculate edge selection
+        void calculateEdgeSelection(const GNEEdge *clickedEdge);
+
     private:
         /// @brief pointer to net
         GNEViewNet* myViewNet;
@@ -917,14 +894,8 @@ struct GNEViewNetHelper {
         /// @brief original clicked position when moveSelection is called (used for calculate offset during moveSelection())
         Position myClickedPosition;
 
-        /// @brief flag to check if a selection is being moved
-        bool myMovingSelection;
-
-        /// @brief container used for move junctions
-        std::vector<GNEJunction*> myMovedJunctions;
-
-        /// @brief container used for move edges
-        std::set<GNEEdge*> myMovedEdges;
+        /// @brief move operations
+        std::vector<GNEMoveOperation*> myMoveOperations;
     };
 
     /// @brief struct used to group all variables related with movement of groups of elements
@@ -1239,6 +1210,27 @@ struct GNEViewNetHelper {
         /// @brief the previous edit mode before edit NetworkElement's shapes
         NetworkEditMode myPreviousNetworkEditMode;
 
+    };
+
+    /// @brief struct for pack all variables and functions related with Block Icon
+    struct LockIcon {
+        /// @brief draw lock icon
+        static void drawLockIcon(const GNEAttributeCarrier *AC, const GNEGeometry::Geometry &geometry,
+            const double exaggeration, const double offsetx, const double offsety, 
+            const bool overlane, const double size = 0.5);
+
+    private:
+        /// @brief constructor
+        LockIcon();
+
+        /// @brief check drawing
+        static const bool checkDrawing(const GNEAttributeCarrier *AC, const double exaggeration);
+
+        /// @brief get lock icon
+        static const GUIGlID getLockIcon(const GNEAttributeCarrier *AC);
+
+        /// @brief Invalidated assignment operator
+        LockIcon& operator=(const LockIcon& other) = delete;
     };
 
     /// @brief get scaled rainbow colors

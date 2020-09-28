@@ -33,42 +33,35 @@
 
 GNEClosingLaneReroute::GNEClosingLaneReroute(GNEAdditional* rerouterIntervalParent, GNELane* closedLane, SVCPermissions permissions) :
     GNEAdditional(rerouterIntervalParent->getNet(), GLO_REROUTER, SUMO_TAG_CLOSING_LANE_REROUTE, "", false,
-{}, {}, {}, {rerouterIntervalParent}, {}, {}, {}, {}),
-myClosedLane(closedLane),
-myPermissions(permissions) {
+        {}, {}, {}, {rerouterIntervalParent}, {}, {}, {}, {}),
+    myClosedLane(closedLane),
+    myPermissions(permissions) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
 GNEClosingLaneReroute::~GNEClosingLaneReroute() {}
 
 
-void
-GNEClosingLaneReroute::moveGeometry(const Position&) {
-    // This additional cannot be moved
-}
-
-
-void
-GNEClosingLaneReroute::commitGeometryMoving(GNEUndoList*) {
-    // This additional cannot be moved
+GNEMoveOperation* 
+GNEClosingLaneReroute::getMoveOperation(const double /*shapeOffset*/) {
+    // GNEClosingLaneReroute cannot be moved
+    return nullptr;
 }
 
 
 void
 GNEClosingLaneReroute::updateGeometry() {
-    // This additional doesn't own a geometry
+    // use geometry of rerouter parent
+    myAdditionalGeometry.updateGeometry(getParentAdditionals().front()->getAdditionalGeometry());
 }
 
 
-Position
-GNEClosingLaneReroute::getPositionInView() const {
-    return getParentAdditionals().at(0)->getPositionInView();
-}
-
-
-Boundary
-GNEClosingLaneReroute::getCenteringBoundary() const {
-    return myClosedLane->getCenteringBoundary();
+void 
+GNEClosingLaneReroute::updateCenteringBoundary(const bool /*updateGrid*/) {
+    // use boundary of parent element
+    myBoundary = getParentAdditionals().front()->getCenteringBoundary();
 }
 
 
@@ -198,5 +191,16 @@ GNEClosingLaneReroute::setAttribute(SumoXMLAttr key, const std::string& value) {
     }
 }
 
+
+void 
+GNEClosingLaneReroute::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // nothing to do
+}
+
+
+void 
+GNEClosingLaneReroute::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // nothing to do
+}
 
 /****************************************************************************/

@@ -20,6 +20,7 @@
 /****************************************************************************/
 #pragma once
 #include "GNENetworkElement.h"
+
 #include <netbuild/NBNode.h>
 
 // ===========================================================================
@@ -74,33 +75,13 @@ public:
     Position getPositionInView() const;
     /// @}
 
-    /// @name functions for edit shape
+    /// @name Functions related with move elements
     /// @{
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void startJunctionShapeGeometryMoving(const double shapeOffset);
+    /// @brief get move operation for the given shapeOffset (can be nullptr)
+    GNEMoveOperation* getMoveOperation(const double shapeOffset);
 
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void endJunctionShapeGeometryMoving();
-
-    /**@brief return index of geometry point placed in given position, or -1 if no exist
-    * @param pos position of new/existent vertex
-    * @param snapToGrid enable or disable snapToActiveGrid
-    * @return index of position vector
-    */
-    int getJunctionShapeVertexIndex(Position pos, const bool snapToGrid) const;
-
-    /**@brief move shape
-    * @param[in] offset the offset of movement
-    */
-    void moveJunctionShape(const Position& offset);
-
-    /**@brief commit geometry changes in the attributes of an element after use of changeShapeGeometry(...)
-    * @param[in] undoList The undoList on which to register changes
-    */
-    void commitJunctionShapeChange(GNEUndoList* undoList);
-
-    /// @brief delete geometry point
-    void deleteJunctionShapeGeometryPoint(const Position& mousePosition, GNEUndoList* undoList);
+    /// @brief remove geometry point in the clicked position
+    void removeGeometryPoint(const Position clickedPosition, GNEUndoList* undoList);
     /// @}
 
     /// @name inherited from GUIGlObject
@@ -114,12 +95,8 @@ public:
      */
     GUIGLObjectPopupMenu* getPopUpMenu(GUIMainWindow& app, GUISUMOAbstractView& parent);
 
-    /**@brief Returns the boundary to which the view shall be centered in order to show the object
-     *
-     * @return The boundary the object is within
-     * @see GUIGlObject::getCenteringBoundary
-     */
-    Boundary getCenteringBoundary() const;
+    /// @brief update centering boundary (implies change in RTREE)
+    void updateCenteringBoundary(const bool updateGrid);
 
     /**@brief Draws the object
      * @param[in] s The settings for the current view (may influence drawing)
@@ -166,23 +143,6 @@ public:
 
     /// @brief notify the junction of being selected in tls-mode. (used to control drawing)
     void selectTLS(bool selected);
-
-    /// @name functions related with geometry movement
-    /// @{
-
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void startGeometryMoving(bool extendToNeighbors = true);
-
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void endGeometryMoving(bool extendToNeighbors = true);
-
-    /// @brief change the position of the element geometry without saving in undoList
-    void moveGeometry(const Position& offset);
-
-    /// @brief registers completed movement with the undoList
-    void commitGeometryMoving(GNEUndoList* undoList);
-
-    /// @}
 
     /// @name inherited from GNEAttributeCarrier
     /// @{
@@ -282,7 +242,7 @@ public:
     /// @brief invalidate path element childs
     void invalidatePathElements();
 
-private:
+protected:
     /// @brief A reference to the represented junction
     NBNode* myNBNode;
 
@@ -326,6 +286,7 @@ private:
     /// @brief whether this junction probably should have some connections but doesn't
     bool myColorForMissingConnections;
 
+private:
     /// @brief draw TLS icon
     void drawTLSIcon(const GUIVisualizationSettings& s) const;
 
@@ -335,11 +296,17 @@ private:
     /// @brief method for setting the attribute and nothing else (used in GNEChange_Attribute)
     void setAttribute(SumoXMLAttr key, const std::string& value);
 
+    /// @brief set move shape
+    void setMoveShape(const GNEMoveResult& moveResult);
+
+    /// @brief commit move shape
+    void commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList);
+
     /**@brief reposition the node at pos without updating GRID and informs the edges
     * @param[in] pos The new position
     * @note: those operations are not added to the undoList.
     */
-    void moveJunctionGeometry(const Position& pos);
+    void moveJunctionGeometry(const Position& pos, const bool updateEdgeBoundaries);
 
     /// @brief sets junction color depending on circumstances
     RGBColor setColor(const GUIVisualizationSettings& s, bool bubble) const;

@@ -28,6 +28,7 @@
 #include <netedit/GNEUndoList.h>
 #include <netedit/GNEViewNet.h>
 #include <utils/gui/globjects/GLIncludes.h>
+#include <utils/gui/globjects/GUIPointOfInterest.h>
 
 #include "GNEPOI.h"
 
@@ -39,9 +40,11 @@
 GNEPOI::GNEPOI(GNENet* net, const std::string& id, const std::string& type, const RGBColor& color,
                const Position& pos, bool geo, double layer, double angle, const std::string& imgFile,
                bool relativePath, double width, double height, bool movementBlocked) :
-    GUIPointOfInterest(id, type, color, pos, geo, "", 0, 0, layer, angle, imgFile, relativePath, width, height),
-    GNEShape(net, SUMO_TAG_POI, movementBlocked,
-{}, {}, {}, {}, {}, {}, {}, {}) {
+    PointOfInterest(id, type, color, pos, geo, "", 0, 0, layer, angle, imgFile, relativePath, width, height),
+    GNEShape(id, net, GLO_POI,SUMO_TAG_POI, movementBlocked,
+        {}, {}, {}, {}, {}, {}, {}, {}) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
     // set GEO Position
     myGEOPosition = pos;
     GeoConvHelper::getFinal().cartesian2geo(myGEOPosition);
@@ -51,24 +54,27 @@ GNEPOI::GNEPOI(GNENet* net, const std::string& id, const std::string& type, cons
 GNEPOI::GNEPOI(GNENet* net, const std::string& id, const std::string& type, const RGBColor& color,
                double layer, double angle, const std::string& imgFile, bool relativePath, GNELane* lane, double posOverLane, double posLat,
                double width, double height, bool movementBlocked) :
-    GUIPointOfInterest(id, type, color, Position(), false, lane->getID(), posOverLane, posLat, layer, angle, imgFile, relativePath, width, height),
-    GNEShape(net, SUMO_TAG_POILANE, movementBlocked,
-{}, {}, {lane}, {}, {}, {}, {}, {}) {
+    PointOfInterest(id, type, color, Position(), false, lane->getID(), posOverLane, posLat, layer, angle, imgFile, relativePath, width, height),
+    GNEShape(id, net, GLO_POI, SUMO_TAG_POILANE, movementBlocked,
+        {}, {}, {lane}, {}, {}, {}, {}, {}) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
 GNEPOI::~GNEPOI() {}
 
 
-const std::string&
-GNEPOI::getID() const {
-    return getMicrosimID();
+GNEMoveOperation* 
+GNEPOI::getMoveOperation(const double shapeOffset) {
+    // return move operation for a position
+    return new GNEMoveOperation(this, *this);
 }
 
 
-GUIGlObject*
-GNEPOI::getGUIGlObject() {
-    return this;
+void 
+GNEPOI::removeGeometryPoint(const Position /*clickedPosition*/, GNEUndoList* /*undoList*/) {
+    // nothing to remove
 }
 
 
@@ -90,17 +96,6 @@ GNEPOI::setParameter(const std::string& key, const std::string& value) {
 
 
 void
-GNEPOI::startPOIGeometryMoving() {
-    myPositionBeforeMoving = *this;
-}
-
-
-void
-GNEPOI::endPOIGeometryMoving() {
-}
-
-
-void
 GNEPOI::writeShape(OutputDevice& device) {
     if (getParentLanes().size() > 0) {
         // obtain fixed position over lane
@@ -112,7 +107,7 @@ GNEPOI::writeShape(OutputDevice& device) {
     }
 }
 
-
+/*
 void
 GNEPOI::movePOIGeometry(const Position& offset) {
     if (!myBlockMovement) {
@@ -153,7 +148,7 @@ GNEPOI::commitPOIGeometryMoving(GNEUndoList* undoList) {
         }
     }
 }
-
+*/
 
 void
 GNEPOI::updateGeometry() {
@@ -166,26 +161,28 @@ GNEPOI::updateGeometry() {
 }
 
 
-Position
-GNEPOI::getPositionInView() const {
-    return Position(x(), y());
-}
-
-
-Boundary
-GNEPOI::getCenteringBoundary() const {
-    // Return Boundary depending if myMovingGeometryBoundary is initialised (important for move geometry)
-    if (myMovingGeometryBoundary.isInitialised()) {
-        return myMovingGeometryBoundary;
-    }  else {
-        return GUIPointOfInterest::getCenteringBoundary();
+void 
+GNEPOI::updateCenteringBoundary(const bool updateGrid) {
+    // Remove object from net
+    if (updateGrid) {
+        myNet->removeGLObjectFromGrid(this);
+    }
+    // reset boundary
+    myBoundary.reset();
+    // add position (this POI)
+    myBoundary.add(*this);
+    // grow boundary
+    myBoundary.grow(10 + std::max(getWidth(), getHeight()));
+    // add object into net
+    if (updateGrid) {
+        myNet->addGLObjectIntoGrid(this);
     }
 }
 
 
 GUIGlID
 GNEPOI::getGlID() const {
-    return GUIPointOfInterest::getGlID();
+    return GUIGlObject::getGlID();
 }
 
 
@@ -225,8 +222,13 @@ GNEPOI::getPopUpMenu(GUIMainWindow& app, GUISUMOAbstractView& parent) {
 
 
 GUIParameterTableWindow*
-GNEPOI::getParameterWindow(GUIMainWindow& app, GUISUMOAbstractView& parent) {
-    return GUIPointOfInterest::getParameterWindow(app, parent);
+GNEPOI::getParameterWindow(GUIMainWindow& app, GUISUMOAbstractView& /*parent*/) {
+    GUIParameterTableWindow* ret = new GUIParameterTableWindow(app, *this);
+    // add items
+    ret->mkItem("type", false, getShapeType());
+    ret->mkItem("layer", false, getShapeLayer());
+    ret->closeBuilding(this);
+    return ret;
 }
 
 
@@ -236,19 +238,19 @@ GNEPOI::drawGL(const GUIVisualizationSettings& s) const {
     if (myNet->getViewNet()->getDemandViewOptions().showShapes() && myNet->getViewNet()->getDataViewOptions().showShapes()) {
         // check if boundary has to be drawn
         if (s.drawBoundaries) {
-            GLHelper::drawBoundary(getCenteringBoundary());
+            GLHelper::drawBoundary(myBoundary);
         }
         // check if POI can be drawn
-        if (checkDraw(s)) {
+        if (GUIPointOfInterest::checkDraw(s, this)) {
             // obtain POIExaggeration
             const double POIExaggeration = s.poiSize.getExaggeration(s, this);
             // push name (needed for getGUIGlObjectsUnderCursor(...)
             glPushName(getGlID());
             // draw inner polygon
             if (myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-                drawInnerPOI(s, drawUsingSelectColor(), GLO_DOTTEDCONTOUR_FRONT);
+                GUIPointOfInterest::drawInnerPOI(s, this, this, drawUsingSelectColor(), GLO_DOTTEDCONTOUR_FRONT);
             } else {
-                drawInnerPOI(s, drawUsingSelectColor(), getShapeLayer());
+                GUIPointOfInterest::drawInnerPOI(s, this, this, drawUsingSelectColor(), getShapeLayer());
             }
             // draw an orange square mode if there is an image(see #4036)
             if (!getShapeImgFile().empty() && myNet->getViewNet()->getTestingMode().isTestingEnabled()) {
@@ -262,9 +264,9 @@ GNEPOI::drawGL(const GUIVisualizationSettings& s) const {
             // check if dotted contour has to be drawn
             if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
                 if (getShapeImgFile().empty()) {
-                    GNEGeometry::drawDottedContourCircle(true, s, *this, 1.3, POIExaggeration);
+                    GNEGeometry::drawDottedContourCircle(GNEGeometry::DottedContourType::INSPECT, s, *this, 1.3, POIExaggeration);
                 } else {
-                    GNEGeometry::drawDottedSquaredShape(true, s, *this, getWidth(), getHeight(), 0, 0, getShapeNaviDegree(), POIExaggeration);
+                    GNEGeometry::drawDottedSquaredShape(GNEGeometry::DottedContourType::INSPECT, s, *this, getWidth(), getHeight(), 0, 0, getShapeNaviDegree(), POIExaggeration);
                 }
             }
             // pop name
@@ -450,8 +452,6 @@ GNEPOI::setAttribute(SumoXMLAttr key, const std::string& value) {
             if (getParentLanes().size() > 0) {
                 myPosOverLane = parse<double>(value);
             } else {
-                // first remove object from grid due position is used for boundary
-                myNet->removeGLObjectFromGrid(this);
                 // set position
                 set(parse<Position>(value));
                 // set GEO Position
@@ -459,24 +459,24 @@ GNEPOI::setAttribute(SumoXMLAttr key, const std::string& value) {
                 myGEOPosition.sety(this->y());
                 myGEOPosition.setz(this->z());
                 GeoConvHelper::getFinal().cartesian2geo(myGEOPosition);
-                // add object into grid again
-                myNet->addGLObjectIntoGrid(this);
             }
+            // update centering boundary
+            updateCenteringBoundary(true);
             break;
         }
         case SUMO_ATTR_POSITION_LAT:
             myPosLat = parse<double>(value);
+            // update centering boundary
+            updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_GEOPOSITION: {
-            // first remove object from grid due position is used for boundary
-            myNet->removeGLObjectFromGrid(this);
             // set new position
             myGEOPosition = parse<Position>(value);
             // set cartesian Position
             set(myGEOPosition);
             GeoConvHelper::getFinal().x2cartesian_const(*this);
-            // add object into grid again
-            myNet->addGLObjectIntoGrid(this);
+            // update centering boundary
+            updateCenteringBoundary(true);
             break;
         }
         case SUMO_ATTR_GEO:
@@ -505,30 +505,16 @@ GNEPOI::setAttribute(SumoXMLAttr key, const std::string& value) {
             setShapeRelativePath(parse<bool>(value));
             break;
         case SUMO_ATTR_WIDTH:
-            if (getParentLanes().size() > 0) {
-                // set new width
-                setWidth(parse<double>(value));
-            } else {
-                // first remove object from grid due position is used for boundary
-                myNet->removeGLObjectFromGrid(this);
-                // set new width
-                setWidth(parse<double>(value));
-                // add object into grid again
-                myNet->addGLObjectIntoGrid(this);
-            }
+            // set new width
+            setWidth(parse<double>(value));
+            // update centering boundary
+            updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_HEIGHT:
-            if (getParentLanes().size() > 0) {
-                // set new height
-                setHeight(parse<double>(value));
-            } else {
-                // first remove object from grid due position is used for boundary
-                myNet->removeGLObjectFromGrid(this);
-                // set new height
-                setHeight(parse<double>(value));
-                // add object into grid again
-                myNet->addGLObjectIntoGrid(this);
-            }
+            // set new height
+            setHeight(parse<double>(value));
+            // update centering boundary
+            updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_ANGLE:
             setShapeNaviDegree(parse<double>(value));
@@ -549,6 +535,21 @@ GNEPOI::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " attribute '" + toString(key) + "' not allowed");
     }
+}
+
+
+void 
+GNEPOI::setMoveShape(const GNEMoveResult& moveResult) {
+    // set geometry
+    set(moveResult.shapeToUpdate.front());
+}
+
+
+void 
+GNEPOI::commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList) {
+    undoList->p_begin("position of " + getTagStr());
+    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(moveResult.shapeToUpdate.front())));
+    undoList->p_end();
 }
 
 /****************************************************************************/

@@ -22,9 +22,9 @@
 
 #include <netedit/elements/GNEHierarchicalElement.h>
 #include <netedit/GNEGeometry.h>
-#include <netedit/GNEMoveShape.h>
 #include <utils/gui/globjects/GUIGlObject.h>
 #include <utils/geom/PositionVector.h>
+#include <netedit/GNEMoveElement.h>
 
 
 // ===========================================================================
@@ -38,7 +38,7 @@ class GNEDemandElement;
 // class definitions
 // ===========================================================================
 
-class GNENetworkElement : public GUIGlObject, public GNEHierarchicalElement, protected GNEMoveShape {
+class GNENetworkElement : public GUIGlObject, public GNEHierarchicalElement, public GNEMoveElement {
 
 public:
     /**@brief Constructor.
@@ -67,6 +67,11 @@ public:
 
     /// @brief Destructor
     virtual ~GNENetworkElement();
+
+    /**@brief get move operation for the given shapeOffset
+    * @note returned GNEMoveOperation can be nullptr
+    */
+    virtual GNEMoveOperation* getMoveOperation(const double shapeOffset) = 0;
 
     /// @brief get ID
     const std::string& getID() const;
@@ -111,7 +116,10 @@ public:
     virtual GUIGLObjectPopupMenu* getPopUpMenu(GUIMainWindow& app, GUISUMOAbstractView& parent) = 0;
 
     /// @brief Returns the boundary to which the view shall be centered in order to show the object
-    virtual Boundary getCenteringBoundary() const = 0;
+    Boundary getCenteringBoundary() const;
+
+    /// @brief update centering boundary (implies change in RTREE)
+    virtual void updateCenteringBoundary(const bool updateGrid) = 0;
 
     /**@brief Draws the object
      * @param[in] s The settings for the current view (may influence drawing)
@@ -169,11 +177,8 @@ public:
     /// @}
 
 protected:
-    /// @brief boundary used during moving of elements
-    Boundary myMovingGeometryBoundary;
-
-    /// @brief position used during moving
-    Position myMovingPosition;
+    /// @brief object boundary
+    Boundary myBoundary;
 
     /// @brief flag to check if element shape is being edited
     bool myShapeEdited;

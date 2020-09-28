@@ -41,6 +41,8 @@ GNEParkingArea::GNEParkingArea(const std::string& id, GNELane* lane, GNENet* net
     myWidth(width),
     myLength(length),
     myAngle(angle) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -49,11 +51,6 @@ GNEParkingArea::~GNEParkingArea() {}
 
 void
 GNEParkingArea::updateGeometry() {
-    // first check if object has to be removed from grid (SUMOTree)
-    if (!myMove.movingGeometryBoundary.isInitialised()) {
-        myNet->removeGLObjectFromGrid(this);
-    }
-
     // Get value of option "lefthand"
     double offsetSign = OptionsCont::getOptions().getBool("lefthand") ? -1 : 1;
 
@@ -68,35 +65,6 @@ GNEParkingArea::updateGeometry() {
 
     // Get position of the sign
     mySignPos = tmpShape.getLineCenter();
-
-    // update block icon position
-    myBlockIcon.updatePositionAndRotation();
-
-    // last step is to check if object has to be added into grid (SUMOTree) again
-    if (!myMove.movingGeometryBoundary.isInitialised()) {
-        myNet->addGLObjectIntoGrid(this);
-    }
-}
-
-
-Boundary
-GNEParkingArea::getCenteringBoundary() const {
-    // Return Boundary depending if myMovingGeometryBoundary is initialised (important for move geometry)
-    if (myMove.movingGeometryBoundary.isInitialised()) {
-        return myMove.movingGeometryBoundary;
-    } else if (myAdditionalGeometry.getShape().size() > 0) {
-        Boundary b = myAdditionalGeometry.getShape().getBoxBoundary();
-        b.grow(myWidth + 1);
-        return b;
-    } else {
-        return Boundary(-0.1, -0.1, 0.1, 0.1);
-    }
-}
-
-
-void
-GNEParkingArea::splitEdgeGeometry(const double /*splitPosition*/, const GNENetworkElement* /*originalElement*/, const GNENetworkElement* /*newElement*/, GNEUndoList* /*undoList*/) {
-    // geometry of this element cannot be splitted
 }
 
 
@@ -134,7 +102,7 @@ GNEParkingArea::drawGL(const GUIVisualizationSettings& s) const {
             // draw sign
             drawSign(s, parkingAreaExaggeration, baseColor, signColor, "H");
             // draw lock icon
-            myBlockIcon.drawIcon(s, parkingAreaExaggeration);
+            GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, parkingAreaExaggeration, 0, 0, true);
         }
         // pop draw matrix
         glPopMatrix();
@@ -146,10 +114,10 @@ GNEParkingArea::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedContourShape(true, s, myAdditionalGeometry.getShape(), myWidth, parkingAreaExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape(), myWidth, parkingAreaExaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedContourShape(false, s, myAdditionalGeometry.getShape(), myWidth, parkingAreaExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape(), myWidth, parkingAreaExaggeration);
         }
         // draw child demand elements
         for (const auto& demandElement : getChildDemandElements()) {
@@ -308,24 +276,24 @@ GNEParkingArea::setAttribute(SumoXMLAttr key, const std::string& value) {
             replaceAdditionalParentLanes(value);
             break;
         case SUMO_ATTR_STARTPOS:
-            myNet->removeGLObjectFromGrid(this);
             if (!value.empty()) {
                 myStartPosition = parse<double>(value);
                 myParametersSet |= STOPPINGPLACE_STARTPOS_SET;
             } else {
                 myParametersSet &= ~STOPPINGPLACE_STARTPOS_SET;
             }
-            myNet->addGLObjectIntoGrid(this);
+            // update boundary
+            updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_ENDPOS:
-            myNet->removeGLObjectFromGrid(this);
             if (!value.empty()) {
                 myEndPosition = parse<double>(value);
                 myParametersSet |= STOPPINGPLACE_ENDPOS_SET;
             } else {
                 myParametersSet &= ~STOPPINGPLACE_ENDPOS_SET;
             }
-            myNet->addGLObjectIntoGrid(this);
+            // update boundary
+            updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_NAME:
             myAdditionalName = value;
@@ -340,9 +308,9 @@ GNEParkingArea::setAttribute(SumoXMLAttr key, const std::string& value) {
             myOnRoad = parse<bool>(value);
             break;
         case SUMO_ATTR_WIDTH:
-            myNet->removeGLObjectFromGrid(this);
             myWidth = parse<double>(value);
-            myNet->addGLObjectIntoGrid(this);
+            // update boundary
+            updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_LENGTH:
             myLength = value;

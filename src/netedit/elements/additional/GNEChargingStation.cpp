@@ -40,6 +40,8 @@ GNEChargingStation::GNEChargingStation(const std::string& id, GNELane* lane, GNE
     myEfficiency(efficiency),
     myChargeInTransit(chargeInTransit),
     myChargeDelay(chargeDelay) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -62,15 +64,6 @@ GNEChargingStation::updateGeometry() {
 
     // Get position of the sign
     mySignPos = tmpShape.getLineCenter();
-
-    // update block icon position
-    myBlockIcon.updatePositionAndRotation();
-}
-
-
-Boundary
-GNEChargingStation::getCenteringBoundary() const {
-    return myAdditionalGeometry.getShape().getBoxBoundary().grow(10);
 }
 
 
@@ -110,7 +103,7 @@ GNEChargingStation::drawGL(const GUIVisualizationSettings& s) const {
             // draw sign
             drawSign(s, chargingStationExaggeration, baseColor, signColor, "C");
             // draw lock icon
-            myBlockIcon.drawIcon(s, chargingStationExaggeration);
+            GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, chargingStationExaggeration, 0, 0, true);
         }
         // pop draw matrix
         glPopMatrix();
@@ -122,10 +115,10 @@ GNEChargingStation::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedContourShape(true, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.chargingStationWidth, chargingStationExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.chargingStationWidth, chargingStationExaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedContourShape(false, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.chargingStationWidth, chargingStationExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.chargingStationWidth, chargingStationExaggeration);
         }
         // draw child demand elements
         for (const auto& demandElement : getChildDemandElements()) {

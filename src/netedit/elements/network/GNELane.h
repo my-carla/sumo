@@ -108,30 +108,13 @@ public:
     Position getPositionInView() const;
     /// @}
 
-    /// @name functions for edit shape
+    /// @name Functions related with move elements
     /// @{
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void startLaneShapeGeometryMoving(const double shapeOffset);
+    /// @brief get move operation for the given shapeOffset (can be nullptr)
+    GNEMoveOperation* getMoveOperation(const double shapeOffset);
 
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void endLaneShapeGeometryMoving();
-
-    /**@brief return index of geometry point placed in given position, or -1 if no exist
-    * @param pos position of new/existent vertex
-    * @param snapToGrid enable or disable snapToActiveGrid
-    * @return index of position vector
-    */
-    int getLaneShapeVertexIndex(Position pos, const bool snapToGrid) const;
-
-    /**@brief move shape
-    * @param[in] offset the offset of movement
-    */
-    void moveLaneShape(const Position& offset);
-
-    /**@brief commit geometry changes in the attributes of an element after use of changeShapeGeometry(...)
-    * @param[in] undoList The undoList on which to register changes
-    */
-    void commitLaneShapeChange(GNEUndoList* undoList);
+    /// @brief remove geometry point in the clicked position
+    void removeGeometryPoint(const Position clickedPosition, GNEUndoList* undoList);
     /// @}
 
     /// @brief returns a vector with the incoming GNEConnections of this lane
@@ -145,15 +128,6 @@ public:
 
     /// @brief get length geometry factor
     double getLengthGeometryFactor() const;
-
-    /// @name functions for edit geometry
-    /// @{
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void startGeometryMoving();
-
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void endGeometryMoving();
-    /// @}
 
     /// @name inherited from GUIGlObject
     /// @{
@@ -173,12 +147,8 @@ public:
     /// @brief multiplexes message to two targets
     long onDefault(FXObject*, FXSelector, void*);
 
-    /**@brief Returns the boundary to which the view shall be centered in order to show the object
-     *
-     * @return The boundary the object is within
-     * @see GUIGlObject::getCenteringBoundary
-     */
-    Boundary getCenteringBoundary() const;
+    /// @brief update centering boundary (implies change in RTREE)
+    void updateCenteringBoundary(const bool updateGrid);
 
     /**@brief Draws the object
      * @param[in] s The settings for the current view (may influence drawing)
@@ -324,12 +294,22 @@ private:
     /// @brief set attribute after validation
     void setAttribute(SumoXMLAttr key, const std::string& value);
 
+    /// @brief set move shape
+    void setMoveShape(const GNEMoveResult& moveResult);
+
+    /// @brief commit move shape
+    void commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList);
+
+    /// @brief draw children
     void drawChildren(const GUIVisualizationSettings& s) const;
 
+    /// @brief path additional elements
     void drawPathAdditionalElements(const GUIVisualizationSettings& s) const;
 
+    /// @brief path demand elements
     void drawPathDemandElements(const GUIVisualizationSettings& s) const;
 
+    /// @brief path generic data elements
     void drawPathGenericDataElements(const GUIVisualizationSettings& s) const;
 
     /// @brief draw lane markings

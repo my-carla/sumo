@@ -37,6 +37,8 @@ GNEContainerStop::GNEContainerStop(const std::string& id, GNELane* lane, GNENet*
                                    const std::string& name, const std::vector<std::string>& lines, bool friendlyPosition, bool blockMovement) :
     GNEStoppingPlace(id, net, GLO_CONTAINER_STOP, SUMO_TAG_CONTAINER_STOP, lane, startPos, endPos, parametersSet, name, friendlyPosition, blockMovement),
     myLines(lines) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -59,16 +61,6 @@ GNEContainerStop::updateGeometry() {
 
     // Get position of the sign
     mySignPos = tmpShape.getLineCenter();
-
-    // update block icon position
-    myBlockIcon.updatePositionAndRotation();
-
-}
-
-
-Boundary
-GNEContainerStop::getCenteringBoundary() const {
-    return myAdditionalGeometry.getShape().getBoxBoundary().grow(10);
 }
 
 
@@ -108,7 +100,7 @@ GNEContainerStop::drawGL(const GUIVisualizationSettings& s) const {
             // draw sign
             drawSign(s, containerStopExaggeration, baseColor, signColor, "C");
             // draw lock icon
-            myBlockIcon.drawIcon(s, containerStopExaggeration);
+            GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, containerStopExaggeration, 0, 0, true);
         }
         // pop draw matrix
         glPopMatrix();
@@ -120,10 +112,10 @@ GNEContainerStop::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedContourShape(true, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.containerStopWidth, containerStopExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.containerStopWidth, containerStopExaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedContourShape(false, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.containerStopWidth, containerStopExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape(), s.stoppingPlaceSettings.containerStopWidth, containerStopExaggeration);
         }
         // draw child demand elements
         for (const auto& demandElement : getChildDemandElements()) {

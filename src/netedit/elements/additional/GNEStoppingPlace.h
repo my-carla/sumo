@@ -55,6 +55,11 @@ public:
     /// @brief Destructor
     ~GNEStoppingPlace();
 
+    /**@brief get move operation for the given shapeOffset
+    * @note returned GNEMoveOperation can be nullptr
+    */
+    GNEMoveOperation* getMoveOperation(const double shapeOffset);    
+
     /// @name members and functions relative to write additionals into XML
     /// @{
     /// @brief check if current additional is valid to be writed into XML
@@ -75,24 +80,11 @@ public:
 
     /// @name Functions related with geometry of element
     /// @{
-    /**@brief change the position of the element geometry without saving in undoList
-     * @param[in] offset Position used for calculate new position of geometry without updating RTree
-     */
-    void moveGeometry(const Position& offset);
-
-    /**@brief commit geometry changes in the attributes of an element after use of moveGeometry(...)
-     * @param[in] undoList The undoList on which to register changes
-     */
-    void commitGeometryMoving(GNEUndoList* undoList);
-
     /// @brief update pre-computed geometry information
     virtual void updateGeometry() = 0;
 
-    /// @brief Returns position of additional in view
-    Position getPositionInView() const;
-
-    /// @brief Returns the boundary to which the view shall be centered in order to show the object
-    virtual Boundary getCenteringBoundary() const = 0;
+    /// @brief update centering boundary (implies change in RTREE)
+    void updateCenteringBoundary(const bool updateGrid);
 
     /// @brief split geometry
     void splitEdgeGeometry(const double splitPosition, const GNENetworkElement* originalElement, const GNENetworkElement* newElement, GNEUndoList* undoList);
@@ -198,6 +190,12 @@ protected:
 private:
     /// @brief set attribute after validation
     virtual void setAttribute(SumoXMLAttr key, const std::string& value) = 0;
+
+    /// @brief set move shape
+    void setMoveShape(const GNEMoveResult& moveResult);
+
+    /// @brief commit move shape
+    void commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList);
 
     /// @brief Invalidate set new position in the view
     void setPosition(const Position& pos) = delete;

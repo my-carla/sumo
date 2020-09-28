@@ -39,8 +39,10 @@
 
 GNEVariableSpeedSign::GNEVariableSpeedSign(const std::string& id, GNENet* net, const Position& pos, const std::string& name, bool blockMovement) :
     GNEAdditional(id, net, GLO_VSS, SUMO_TAG_VSS, name, blockMovement,
-{}, {}, {}, {}, {}, {}, {}, {}),
-myPosition(pos) {
+        {}, {}, {}, {}, {}, {}, {}, {}),
+    myPosition(pos) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -48,39 +50,45 @@ GNEVariableSpeedSign::~GNEVariableSpeedSign() {
 }
 
 
+GNEMoveOperation* 
+GNEVariableSpeedSign::getMoveOperation(const double /*shapeOffset*/) {
+    if (myBlockMovement) {
+        // element blocked, then nothing to move
+        return nullptr;
+    } else {
+        // return move operation for additional placed in view
+        return new GNEMoveOperation(this, myPosition);
+    }
+}
+
+
 void
 GNEVariableSpeedSign::updateGeometry() {
     // update additional geometry
     myAdditionalGeometry.updateGeometry(myPosition, 0);
-
-    // update block icon position
-    myBlockIcon.updatePositionAndRotation();
-
-    // Set block icon offset
-    myBlockIcon.setOffset(-0.5, -0.5);
-
     // Update Hierarchical connections geometry
     myHierarchicalConnections.update();
 }
 
 
-Position
-GNEVariableSpeedSign::getPositionInView() const {
-    return myPosition;
-}
-
-
-Boundary
-GNEVariableSpeedSign::getCenteringBoundary() const {
-    // Return Boundary depending if myMovingGeometryBoundary is initialised (important for move geometry)
-    if (myMove.movingGeometryBoundary.isInitialised()) {
-        return myMove.movingGeometryBoundary;
-    } else {
-        Boundary b;
-        b.add(myPosition);
-        b.grow(5);
-        return b;
+void 
+GNEVariableSpeedSign::updateCenteringBoundary(const bool updateGrid) {
+    // remove additional from grid
+    if (updateGrid) {
+        myNet->removeGLObjectFromGrid(this);
     }
+    // update geometry
+    updateGeometry();
+    // add shape boundary
+    myBoundary = myAdditionalGeometry.getShape().getBoxBoundary();
+    // grow
+    myBoundary.grow(10);
+    // add additional into RTREE again
+    if (updateGrid) {
+        myNet->addGLObjectIntoGrid(this);
+    }
+    // Update Hierarchical connections geometry
+    myHierarchicalConnections.update();
 }
 
 
@@ -94,26 +102,6 @@ void
 GNEVariableSpeedSign::openAdditionalDialog() {
     // Open VSS dialog
     GNEVariableSpeedSignDialog(this);
-}
-
-
-void
-GNEVariableSpeedSign::moveGeometry(const Position& offset) {
-    // restore old position, apply offset and update Geometry
-    myPosition = myMove.originalViewPosition;
-    myPosition.add(offset);
-    // filtern position using snap to active grid
-    myPosition = myNet->getViewNet()->snapToActiveGrid(myPosition);
-    updateGeometry();
-}
-
-
-void
-GNEVariableSpeedSign::commitGeometryMoving(GNEUndoList* undoList) {
-    // commit new position allowing undo/redo
-    undoList->p_begin("position of " + getTagStr());
-    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(myPosition), toString(myMove.originalViewPosition)));
-    undoList->p_end();
 }
 
 
@@ -139,6 +127,8 @@ GNEVariableSpeedSign::drawGL(const GUIVisualizationSettings& s) const {
         glPushMatrix();
         // translate to front
         myNet->getViewNet()->drawTranslateFrontAttributeCarrier(this, GLO_VSS);
+        // push texture matrix
+        glPushMatrix();
         // translate to position
         glTranslated(myPosition.x(), myPosition.y(), 0);
         // scale
@@ -161,8 +151,10 @@ GNEVariableSpeedSign::drawGL(const GUIVisualizationSettings& s) const {
             // just draw a withe square
             GLHelper::drawBoxLine(Position(0, s.additionalSettings.VSSSize), 0, 2 * s.additionalSettings.VSSSize, s.additionalSettings.VSSSize);
         }
-        // Show Lock icon
-        myBlockIcon.drawIcon(s, VSSExaggeration, 0.4);
+        // Pop texture matrix
+        glPopMatrix();
+        // draw lock icon
+        GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, VSSExaggeration, -0.5, -0.5, false, 0.4);
         // Pop layer matrix
         glPopMatrix();
         // Pop name
@@ -179,10 +171,10 @@ GNEVariableSpeedSign::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contour has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedSquaredShape(true, s, myPosition, s.additionalSettings.VSSSize, s.additionalSettings.VSSSize, 0, 0, 0, VSSExaggeration);
+            GNEGeometry::drawDottedSquaredShape(GNEGeometry::DottedContourType::INSPECT, s, myPosition, s.additionalSettings.VSSSize, s.additionalSettings.VSSSize, 0, 0, 0, VSSExaggeration);
         }
         if (s.drawDottedContour() || (myNet->getViewNet()->getFrontAttributeCarrier() == this)) {
-            GNEGeometry::drawDottedSquaredShape(false, s, myPosition, s.additionalSettings.VSSSize, s.additionalSettings.VSSSize, 0, 0, 0, VSSExaggeration);
+            GNEGeometry::drawDottedSquaredShape(GNEGeometry::DottedContourType::FRONT, s, myPosition, s.additionalSettings.VSSSize, s.additionalSettings.VSSSize, 0, 0, 0, VSSExaggeration);
         }
     }
 }
@@ -302,9 +294,9 @@ GNEVariableSpeedSign::setAttribute(SumoXMLAttr key, const std::string& value) {
             myNet->getAttributeCarriers()->updateID(this, value);
             break;
         case SUMO_ATTR_POSITION:
-            myNet->removeGLObjectFromGrid(this);
             myPosition = parse<Position>(value);
-            myNet->addGLObjectIntoGrid(this);
+            // update boundary
+            updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_NAME:
             myAdditionalName = value;
@@ -325,6 +317,23 @@ GNEVariableSpeedSign::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void 
+GNEVariableSpeedSign::setMoveShape(const GNEMoveResult& moveResult) {
+    // update position
+    myPosition = moveResult.shapeToUpdate.front();
+    // update geometry
+    updateGeometry();
+}
+
+
+void 
+GNEVariableSpeedSign::commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList) {
+    undoList->p_begin("position of " + getTagStr());
+    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(moveResult.shapeToUpdate.front())));
+    undoList->p_end();
 }
 
 

@@ -87,23 +87,25 @@ GNELane::LaneDrawingConstants::LaneDrawingConstants() :
 
 GNELane::GNELane(GNEEdge* edge, const int index) :
     GNENetworkElement(edge->getNet(), edge->getNBEdge()->getLaneID(index), GLO_LANE, SUMO_TAG_LANE,
-{}, {}, {}, {}, {}, {}, {}, {}),
-myParentEdge(edge),
-myIndex(index),
-mySpecialColor(nullptr),
-mySpecialColorValue(-1),
-myLane2laneConnections(this) {
+    {}, {}, {}, {}, {}, {}, {}, {}),
+    myParentEdge(edge),
+    myIndex(index),
+    mySpecialColor(nullptr),
+    mySpecialColorValue(-1),
+    myLane2laneConnections(this) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
 GNELane::GNELane() :
     GNENetworkElement(nullptr, "dummyConstructorGNELane", GLO_LANE, SUMO_TAG_LANE,
-{}, {}, {}, {}, {}, {}, {}, {}),
-myParentEdge(nullptr),
-myIndex(-1),
-mySpecialColor(nullptr),
-mySpecialColorValue(-1),
-myLane2laneConnections(this) {
+    {}, {}, {}, {}, {}, {}, {}, {}),
+    myParentEdge(nullptr),
+    myIndex(-1),
+    mySpecialColor(nullptr),
+    mySpecialColorValue(-1),
+    myLane2laneConnections(this) {
 }
 
 
@@ -225,113 +227,16 @@ GNELane::getPositionInView() const {
 }
 
 
-void
-GNELane::startLaneShapeGeometryMoving(const double shapeOffset) {
-    // save current centering boundary
-    myMovingGeometryBoundary = getCenteringBoundary();
-    // start move shape depending of block shape
-    startMoveShape(myParentEdge->getNBEdge()->getLaneShape(myIndex), shapeOffset, myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.edgeGeometryPointRadius);
+GNEMoveOperation* 
+GNELane::getMoveOperation(const double /*shapeOffset*/) {
+    // currently Lane shapes cannot be edited
+    return nullptr;
 }
 
 
-void
-GNELane::endLaneShapeGeometryMoving() {
-    // check that endGeometryMoving was called only once
-    if (myMovingGeometryBoundary.isInitialised()) {
-        // Remove object from net
-        myNet->removeGLObjectFromGrid(this);
-        // reset myMovingGeometryBoundary
-        myMovingGeometryBoundary.reset();
-        // add object into grid again (using the new centering boundary)
-        myNet->addGLObjectIntoGrid(this);
-    }
-}
-
-
-int
-GNELane::getLaneShapeVertexIndex(Position pos, const bool snapToGrid) const {
-    // get shape
-    const PositionVector& shape = myParentEdge->getNBEdge()->getLaneShape(myIndex);
-    // check if position has to be snapped to grid
-    if (snapToGrid) {
-        pos = myNet->getViewNet()->snapToActiveGrid(pos);
-    }
-    const double offset = shape.nearest_offset_to_point2D(pos, true);
-    if (offset == GeomHelper::INVALID_OFFSET) {
-        return -1;
-    }
-    Position newPos = shape.positionAtOffset2D(offset);
-    // first check if vertex already exists in the inner geometry
-    for (int i = 0; i < (int)shape.size(); i++) {
-        if (shape[i].distanceTo2D(newPos) < myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.edgeGeometryPointRadius) {
-            // index refers to inner geometry
-            if (i == 0 || i == (int)(shape.size() - 1)) {
-                return -1;
-            }
-            return i;
-        }
-    }
-    return -1;
-}
-
-
-void
-GNELane::moveLaneShape(const Position& offset) {
-    // first obtain a copy of shapeBeforeMoving
-    PositionVector newShape = getShapeBeforeMoving();
-    if (moveEntireShape()) {
-        // move entire shape
-        newShape.add(offset);
-    } else {
-        int geometryPointIndex = getGeometryPointIndex();
-        // if geometryPoint is -1, then we have to create a new geometry point
-        if (geometryPointIndex == -1) {
-            geometryPointIndex = newShape.insertAtClosest(getPosOverShapeBeforeMoving(), true);
-        }
-        // get last index
-        const int lastIndex = (int)newShape.size() - 1;
-        // check if we have to move first and last postion
-        if ((newShape.size() > 2) && (newShape.front() == newShape.back()) &&
-                ((geometryPointIndex == 0) || (geometryPointIndex == lastIndex))) {
-            // move first and last position in newShape
-            newShape[0].add(offset);
-            newShape[lastIndex] = newShape[0];
-        } else {
-            // move geometry point within newShape
-            newShape[geometryPointIndex].add(offset);
-        }
-    }
-    // set new shape
-    myParentEdge->getNBEdge()->setLaneShape(myIndex, newShape);
-    // update geometry
-    updateGeometry();
-}
-
-
-void
-GNELane::commitLaneShapeChange(GNEUndoList* undoList) {
-    // get visualisation settings
-    auto& s = myNet->getViewNet()->getVisualisationSettings();
-    // restore original shape into shapeToCommit
-    PositionVector shapeToCommit = myParentEdge->getNBEdge()->getLaneShape(myIndex);
-    // get geometryPoint radius
-    const double geometryPointRadius = s.neteditSizeSettings.edgeGeometryPointRadius * s.polySize.getExaggeration(s, this);
-    // remove double points
-    shapeToCommit.removeDoublePoints(geometryPointRadius);
-    // check if we have to merge start and end points
-    if ((shapeToCommit.front() != shapeToCommit.back()) && (shapeToCommit.front().distanceTo2D(shapeToCommit.back()) < geometryPointRadius)) {
-        shapeToCommit[0] = shapeToCommit.back();
-    }
-    // update geometry
-    updateGeometry();
-    // restore old geometry to allow change attribute (And restore shape if during movement a new point was created
-    myParentEdge->getNBEdge()->setLaneShape(myIndex, getShapeBeforeMoving());
-    // finish geometry moving
-    endLaneShapeGeometryMoving();
-    // commit new shape
-    undoList->p_begin("moving " + toString(SUMO_ATTR_CUSTOMSHAPE) + " of " + getTagStr());
-    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_CUSTOMSHAPE, toString(shapeToCommit)));
-    undoList->p_end();
+void 
+GNELane::removeGeometryPoint(const Position /*clickedPosition*/, GNEUndoList* /*undoList*/) {
+    // currently unused
 }
 
 
@@ -630,11 +535,11 @@ GNELane::drawGL(const GUIVisualizationSettings& s) const {
         if (!drawRailway) {
             if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this) ||
                     (myNet->getViewNet()->isAttributeCarrierInspected(myParentEdge) && (myParentEdge->getLanes().size() == 1))) {
-                GNEGeometry::drawDottedContourLane(true, s, myDottedLaneGeometry, laneDrawingConstants.halfWidth, true, true);
+                GNEGeometry::drawDottedContourLane(GNEGeometry::DottedContourType::INSPECT, s, myDottedLaneGeometry, laneDrawingConstants.halfWidth, true, true);
             }
             if (s.drawDottedContour() || (myNet->getViewNet()->getFrontAttributeCarrier() == this) ||
                     ((myNet->getViewNet()->getFrontAttributeCarrier() == myParentEdge) && (myParentEdge->getLanes().size() == 1))) {
-                GNEGeometry::drawDottedContourLane(false, s, myDottedLaneGeometry, laneDrawingConstants.halfWidth, true, true);
+                GNEGeometry::drawDottedContourLane(GNEGeometry::DottedContourType::FRONT, s, myDottedLaneGeometry, laneDrawingConstants.halfWidth, true, true);
             }
         }
         // draw children
@@ -819,12 +724,12 @@ GNELane::getPopUpMenu(GUIMainWindow& app, GUISUMOAbstractView& parent) {
 }
 
 
-Boundary
-GNELane::getCenteringBoundary() const {
+void
+GNELane::updateCenteringBoundary(const bool /*updateGrid*/) {
     if (myParentEdge->getNBEdge()->getLaneStruct(myIndex).customShape.size() == 0) {
-        return myParentEdge->getNBEdge()->getLaneStruct(myIndex).shape.getBoxBoundary();
+        myBoundary = myParentEdge->getNBEdge()->getLaneStruct(myIndex).shape.getBoxBoundary();
     } else {
-        return myParentEdge->getNBEdge()->getLaneStruct(myIndex).customShape.getBoxBoundary();
+        myBoundary= myParentEdge->getNBEdge()->getLaneStruct(myIndex).customShape.getBoxBoundary();
     }
 }
 
@@ -1135,6 +1040,8 @@ GNELane::setAttribute(SumoXMLAttr key, const std::string& value) {
             break;
         case SUMO_ATTR_WIDTH:
             edge->setLaneWidth(myIndex, parse<double>(value));
+            // update edge parent boundary
+            myParentEdge->updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_ENDOFFSET:
             edge->setEndOffset(myIndex, parse<double>(value));
@@ -1143,12 +1050,10 @@ GNELane::setAttribute(SumoXMLAttr key, const std::string& value) {
             edge->setAcceleration(myIndex, parse<bool>(value));
             break;
         case SUMO_ATTR_CUSTOMSHAPE: {
-            // first remove parent edge from net
-            myNet->removeGLObjectFromGrid(myParentEdge);
             // set new shape
             edge->setLaneShape(myIndex, parse<PositionVector>(value));
-            // add parent edge into net again
-            myNet->addGLObjectIntoGrid(myParentEdge);
+            // update edge parent boundary
+            myParentEdge->updateCenteringBoundary(true);
             break;
         }
         case GNE_ATTR_OPPOSITE: {
@@ -1179,6 +1084,18 @@ GNELane::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void 
+GNELane::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // currently unused
+}
+
+
+void 
+GNELane::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // currently unused
 }
 
 
@@ -1507,11 +1424,11 @@ GNELane::drawLaneAsRailway(const GUIVisualizationSettings& s, const LaneDrawingC
     // check if dotted contours has to be drawn
     if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this) ||
             (myNet->getViewNet()->isAttributeCarrierInspected(myParentEdge) && (myParentEdge->getLanes().size() == 1))) {
-        GNEGeometry::drawDottedContourShape(true, s, shape, halfGauge, 1);
+        GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::INSPECT, s, shape, halfGauge, 1);
     }
     if (s.drawDottedContour() || (myNet->getViewNet()->getFrontAttributeCarrier() == this) ||
             ((myNet->getViewNet()->getFrontAttributeCarrier() == myParentEdge) && (myParentEdge->getLanes().size() == 1))) {
-        GNEGeometry::drawDottedContourShape(false, s, shape, halfGauge, 1);
+        GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::FRONT, s, shape, halfGauge, 1);
     }
 }
 
@@ -1705,50 +1622,6 @@ GNELane::getLengthGeometryFactor() const {
 
 
 void
-GNELane::startGeometryMoving() {
-    // Lanes don't need to save the current Centering Boundary, due they are parts of an Edge
-    // Save current centering boundary of child additional
-    for (auto i : getChildAdditionals()) {
-        i->startGeometryMoving();
-    }
-    // Save current centering boundary of additionals with this lane as chid
-    for (auto i : getParentAdditionals()) {
-        i->startGeometryMoving();
-    }
-    // Save current centering boundary of child demand elements
-    for (auto i : getChildDemandElements()) {
-        i->startGeometryMoving();
-    }
-    // Save current centering boundary of demand element with this lane as chid
-    for (auto i : getParentDemandElements()) {
-        i->startGeometryMoving();
-    }
-}
-
-
-void
-GNELane::endGeometryMoving() {
-    // Lanes don't need to save the current Centering Boundary, due they are parts of an Edge
-    // Restore centering boundary of additionals with this lane as chid
-    for (auto i : getChildAdditionals()) {
-        i->endGeometryMoving();
-    }
-    // Restore centering boundary of additionals with this lane as chid
-    for (auto i : getParentAdditionals()) {
-        i->endGeometryMoving();
-    }
-    // Restore centering boundary of demand elements with this lane as chid
-    for (auto i : getChildDemandElements()) {
-        i->endGeometryMoving();
-    }
-    // Restore centering boundary of demand elements with this lane as chid
-    for (auto i : getParentDemandElements()) {
-        i->endGeometryMoving();
-    }
-}
-
-
-void
 GNELane::buildEdgeOperations(GUISUMOAbstractView& parent, GUIGLObjectPopupMenu* ret) {
     // Create basic commands
     std::string edgeDescPossibleMulti = toString(SUMO_TAG_EDGE);
@@ -1900,4 +1773,11 @@ GNELane::buildRechableOperations(GUISUMOAbstractView& parent, GUIGLObjectPopupMe
     }
 }
 
+
+void 
+removeGeometryPoint(const Position /*clickedPosition*/, GNEUndoList* /*undoList*/) {
+    // currently unused
+}
+
 /****************************************************************************/
+

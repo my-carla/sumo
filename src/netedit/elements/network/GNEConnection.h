@@ -56,37 +56,14 @@ public:
     Position getPositionInView() const;
     /// @}
 
-    /// @name functions for edit shape
+    /// @name Functions related with move elements
     /// @{
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void startConnectionShapeGeometryMoving(const double shapeOffset);
+    /// @brief get move operation for the given shapeOffset (can be nullptr)
+    GNEMoveOperation* getMoveOperation(const double shapeOffset);
 
-    /// @brief begin movement (used when user click over edge to start a movement, to avoid problems with GL Tree)
-    void endConnectionShapeGeometryMoving();
-
-    /**@brief return index of geometry point placed in given position, or -1 if no exist
-    * @param pos position of new/existent vertex
-    * @param snapToGrid enable or disable snapToActiveGrid
-    * @return index of position vector
-    */
-    int getConnectionShapeVertexIndex(Position pos, const bool snapToGrid) const;
-
-    /**@brief move shape
-    * @param[in] offset the offset of movement
-    */
-    void moveConnectionShape(const Position& offset);
-
-    /**@brief commit geometry changes in the attributes of an element after use of changeShapeGeometry(...)
-    * @param[in] undoList The undoList on which to register changes
-    */
-    void commitConnectionShapeChange(GNEUndoList* undoList);
-
-    /// @brief delete geometry point
-    void deleteConnectionShapeGeometryPoint(const Position& mousePosition, GNEUndoList* undoList);
+    /// @brief remove geometry point in the clicked position
+    void removeGeometryPoint(const Position clickedPosition, GNEUndoList* undoList);
     /// @}
-
-    /// Returns the street's geometry
-    Boundary getBoundary() const;
 
     /// @brief get the name of the edge the vehicles leave
     GNEEdge* getEdgeFrom() const;
@@ -135,11 +112,8 @@ public:
      */
     GUIGLObjectPopupMenu* getPopUpMenu(GUIMainWindow& app, GUISUMOAbstractView& parent);
 
-    /**@brief Returns the boundary to which the view shall be centered in order to show the object
-     *
-     * @return The boundary the object is within
-     */
-    Boundary getCenteringBoundary() const;
+    /// @brief update centering boundary (implies change in RTREE)
+    void updateCenteringBoundary(const bool updateGrid);
 
     /**@brief Draws the object
      * @param[in] s The settings for the current view (may influence drawing)
@@ -206,6 +180,12 @@ protected:
 private:
     /// @brief set attribute after validation
     void setAttribute(SumoXMLAttr key, const std::string& value);
+
+    /// @brief set move shape
+    void setMoveShape(const GNEMoveResult& moveResult);
+
+    /// @brief commit move shape
+    void commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList);
 
     /// @brief manage change of tlLinkindices
     void changeTLIndex(SumoXMLAttr key, int tlIndex, int tlIndex2, GNEUndoList* undoList);

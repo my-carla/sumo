@@ -32,9 +32,11 @@
 
 GNERerouterInterval::GNERerouterInterval(GNERerouterDialog* rerouterDialog) :
     GNEAdditional(rerouterDialog->getEditedAdditional()->getNet(), GLO_REROUTER, SUMO_TAG_INTERVAL, "", false,
-{}, {}, {}, {rerouterDialog->getEditedAdditional()}, {}, {}, {}, {}),
-myBegin(0),
-myEnd(0) {
+        {}, {}, {}, {rerouterDialog->getEditedAdditional()}, {}, {}, {}, {}),
+    myBegin(0),
+    myEnd(0) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
     // fill reroute interval with default values
     setDefaultValues();
 }
@@ -42,23 +44,21 @@ myEnd(0) {
 
 GNERerouterInterval::GNERerouterInterval(GNEAdditional* rerouterParent, SUMOTime begin, SUMOTime end) :
     GNEAdditional(rerouterParent->getNet(), GLO_REROUTER, SUMO_TAG_INTERVAL, "", false,
-{}, {}, {}, {rerouterParent}, {}, {}, {}, {}),
-myBegin(begin),
-myEnd(end) {
+        {}, {}, {}, {rerouterParent}, {}, {}, {}, {}),
+    myBegin(begin),
+    myEnd(end) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
 GNERerouterInterval::~GNERerouterInterval() {}
 
-void
-GNERerouterInterval::moveGeometry(const Position&) {
-    // This additional cannot be moved
-}
 
-
-void
-GNERerouterInterval::commitGeometryMoving(GNEUndoList*) {
-    // This additional cannot be moved
+GNEMoveOperation*
+GNERerouterInterval::getMoveOperation(const double /*shapeOffset*/) {
+    // rerouter intervals cannot be moved
+    return nullptr;
 }
 
 
@@ -68,15 +68,10 @@ GNERerouterInterval::updateGeometry() {
 }
 
 
-Position
-GNERerouterInterval::getPositionInView() const {
-    return getParentAdditionals().at(0)->getPositionInView();
-}
-
-
-Boundary
-GNERerouterInterval::getCenteringBoundary() const {
-    return getParentAdditionals().at(0)->getCenteringBoundary();
+void 
+GNERerouterInterval::updateCenteringBoundary(const bool /*updateGrid*/) {
+    // use boundary of parent element
+    myBoundary = getParentAdditionals().front()->getCenteringBoundary();
 }
 
 
@@ -198,6 +193,16 @@ GNERerouterInterval::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void GNERerouterInterval::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // nothing to do
+}
+
+
+void GNERerouterInterval::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // nothing to do
 }
 
 

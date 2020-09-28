@@ -37,10 +37,12 @@
 GNERouteProbe::GNERouteProbe(const std::string& id, GNENet* net, GNEEdge* edge, const std::string& frequency,
                              const std::string& name, const std::string& filename, SUMOTime begin) :
     GNEAdditional(id, net, GLO_ROUTEPROBE, SUMO_TAG_ROUTEPROBE, name, false,
-{}, {edge}, {}, {}, {}, {}, {}, {}),
-myFrequency(frequency),
-myFilename(filename),
-myBegin(begin) {
+        {}, {edge}, {}, {}, {}, {}, {}, {}),
+    myFrequency(frequency),
+    myFilename(filename),
+    myBegin(begin) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -55,22 +57,14 @@ GNERouteProbe::updateGeometry() {
 }
 
 
-Position
-GNERouteProbe::getPositionInView() const {
-    if (getParentEdges().front()->getLanes().front()->getLaneShape().length() < 0.5) {
-        return getParentEdges().front()->getLanes().front()->getLaneShape().front();
-    } else {
-        Position A = getParentEdges().front()->getLanes().front()->getLaneShape().positionAtOffset(0.5);
-        Position B = getParentEdges().front()->getLanes().back()->getLaneShape().positionAtOffset(0.5);
-        // return Middle point
-        return Position((A.x() + B.x()) / 2, (A.y() + B.y()) / 2);
-    }
-}
-
-
-Boundary
-GNERouteProbe::getCenteringBoundary() const {
-    return myAdditionalGeometry.getShape().getBoxBoundary().grow(10);
+void 
+GNERouteProbe::updateCenteringBoundary(const bool /*pdateGrid*/) {
+    // update geometry
+    updateGeometry();
+    // add shape boundary
+    myBoundary = myAdditionalGeometry.getShape().getBoxBoundary();
+    // grow
+    myBoundary.grow(10);
 }
 
 
@@ -80,15 +74,10 @@ GNERouteProbe::splitEdgeGeometry(const double /*splitPosition*/, const GNENetwor
 }
 
 
-void
-GNERouteProbe::moveGeometry(const Position&) {
-    // This additional cannot be moved
-}
-
-
-void
-GNERouteProbe::commitGeometryMoving(GNEUndoList*) {
-    // This additional cannot be moved
+GNEMoveOperation* 
+GNERouteProbe::getMoveOperation(const double /*shapeOffset*/) {
+    // routeprobes cannot be moved
+    return nullptr;
 }
 
 
@@ -132,8 +121,8 @@ GNERouteProbe::drawGL(const GUIVisualizationSettings& s) const {
         GNEGeometry::drawGeometry(myNet->getViewNet(), myAdditionalGeometry, 0.05 * routeProbeExaggeration);
         // move to icon position and front
         glTranslated(myAdditionalGeometry.getShape().front().x(), myAdditionalGeometry.getShape().front().y(), .1);
-        // rotate
-        glRotated(myAdditionalGeometry.getShape().rotationDegreeAtOffset(0), 0, 0, -1);
+        // rotate over lane
+        GNEGeometry::rotateOverLane(myAdditionalGeometry.getShapeRotations().front());
         // Draw icon depending of Route Probe is selected and if isn't being drawn for selecting
         if (!s.drawForRectangleSelection && s.drawDetail(s.detailSettings.laneTextures, routeProbeExaggeration)) {
             // set color
@@ -160,10 +149,10 @@ GNERouteProbe::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedContourShape(true, s, myAdditionalGeometry.getShape(), 0.3, routeProbeExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape(), 0.3, routeProbeExaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedContourShape(false, s, myAdditionalGeometry.getShape(), 0.3, routeProbeExaggeration);
+            GNEGeometry::drawDottedContourShape(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape(), 0.3, routeProbeExaggeration);
         }
     }
 }
@@ -315,6 +304,18 @@ GNERouteProbe::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void 
+GNERouteProbe::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // nothing to do
+}
+
+
+void 
+GNERouteProbe::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // nothing to do
 }
 
 

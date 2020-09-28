@@ -33,13 +33,22 @@
 
 GNEVariableSpeedSignStep::GNEVariableSpeedSignStep(GNEAdditional* variableSpeedSignParent, double time, double speed) :
     GNEAdditional(variableSpeedSignParent->getNet(), GLO_VSS, SUMO_TAG_STEP, "", false,
-{}, {}, {}, {variableSpeedSignParent}, {}, {}, {}, {}),
-myTime(time),
-mySpeed(speed) {
+        {}, {}, {}, {variableSpeedSignParent}, {}, {}, {}, {}),
+    myTime(time),
+    mySpeed(speed) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
 GNEVariableSpeedSignStep::~GNEVariableSpeedSignStep() {}
+
+
+GNEMoveOperation* 
+GNEVariableSpeedSignStep::getMoveOperation(const double /*shapeOffset*/) {
+    // VSS Steps cannot be moved
+    return nullptr;
+}
 
 
 double
@@ -49,32 +58,15 @@ GNEVariableSpeedSignStep::getTime() const {
 
 
 void
-GNEVariableSpeedSignStep::moveGeometry(const Position&) {
-    // This additional cannot be moved
-}
-
-
-void
-GNEVariableSpeedSignStep::commitGeometryMoving(GNEUndoList*) {
-    // This additional cannot be moved
-}
-
-
-void
 GNEVariableSpeedSignStep::updateGeometry() {
     // This additional doesn't own a geometry
 }
 
 
-Position
-GNEVariableSpeedSignStep::getPositionInView() const {
-    return getParentAdditionals().at(0)->getPositionInView();
-}
-
-
-Boundary
-GNEVariableSpeedSignStep::getCenteringBoundary() const {
-    return getParentAdditionals().at(0)->getCenteringBoundary();
+void
+GNEVariableSpeedSignStep::updateCenteringBoundary(const bool /*updateGrid*/) {
+    // use boundary of parent element
+    myBoundary = getParentAdditionals().front()->getCenteringBoundary();
 }
 
 
@@ -211,6 +203,18 @@ GNEVariableSpeedSignStep::setAttribute(SumoXMLAttr key, const std::string& value
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void
+GNEVariableSpeedSignStep::setMoveShape(const GNEMoveResult& /*moveResult*/) {
+    // nothing to do
+}
+
+
+void 
+GNEVariableSpeedSignStep::commitMoveShape(const GNEMoveResult& /*moveResult*/, GNEUndoList* /*undoList*/) {
+    // nothing to do
 }
 
 

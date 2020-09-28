@@ -39,13 +39,15 @@ GNERerouter::GNERerouter(const std::string& id, GNENet* net, const Position& pos
                          const std::string& name, const std::string& filename, double probability,
                          bool off, SUMOTime timeThreshold, const std::string& vTypes, bool blockMovement) :
     GNEAdditional(id, net, GLO_REROUTER, SUMO_TAG_REROUTER, name, blockMovement,
-{}, {}, {}, {}, {}, {}, {}, {}),
-myPosition(pos),
-myFilename(filename),
-myProbability(probability),
-myOff(off),
-myTimeThreshold(timeThreshold),
-myVTypes(vTypes) {
+        {}, {}, {}, {}, {}, {}, {}, {}),
+    myPosition(pos),
+    myFilename(filename),
+    myProbability(probability),
+    myOff(off),
+    myTimeThreshold(timeThreshold),
+    myVTypes(vTypes) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -53,39 +55,45 @@ GNERerouter::~GNERerouter() {
 }
 
 
+GNEMoveOperation* 
+GNERerouter::getMoveOperation(const double /*shapeOffset*/) {
+    if (myBlockMovement) {
+        // element blocked, then nothing to move
+        return nullptr;
+    } else {
+        // return move operation for additional placed in view
+        return new GNEMoveOperation(this, myPosition);
+    }
+}
+
+
 void
 GNERerouter::updateGeometry() {
     // update additional geometry
     myAdditionalGeometry.updateGeometry(myPosition, 0);
-
-    // update block icon position
-    myBlockIcon.updatePositionAndRotation();
-
-    // Set block icon offset
-    myBlockIcon.setOffset(-0.5, -0.5);
-
     // Update Hierarchical connections geometry
     myHierarchicalConnections.update();
 }
 
 
-Position
-GNERerouter::getPositionInView() const {
-    return myPosition;
-}
-
-
-Boundary
-GNERerouter::getCenteringBoundary() const {
-    // Return Boundary depending if myMovingGeometryBoundary is initialised (important for move geometry)
-    if (myMove.movingGeometryBoundary.isInitialised()) {
-        return myMove.movingGeometryBoundary;
-    } else {
-        Boundary b;
-        b.add(myPosition);
-        b.grow(5);
-        return b;
+void 
+GNERerouter::updateCenteringBoundary(const bool updateGrid) {
+    // remove additional from grid
+    if (updateGrid) {
+        myNet->removeGLObjectFromGrid(this);
     }
+    // now update geometry
+    updateGeometry();
+    // add shape boundary
+    myBoundary = myAdditionalGeometry.getShape().getBoxBoundary();
+    // grow
+    myBoundary.grow(10);
+    // add additional into RTREE again
+    if (updateGrid) {
+        myNet->addGLObjectIntoGrid(this);
+    }
+    // Update Hierarchical connections geometry
+    myHierarchicalConnections.update();
 }
 
 
@@ -99,26 +107,6 @@ void
 GNERerouter::openAdditionalDialog() {
     // Open rerouter dialog
     GNERerouterDialog(this);
-}
-
-
-void
-GNERerouter::moveGeometry(const Position& offset) {
-    // restore old position, apply offset and update Geometry
-    myPosition = myMove.originalViewPosition;
-    myPosition.add(offset);
-    // filtern position using snap to active grid
-    myPosition = myNet->getViewNet()->snapToActiveGrid(myPosition);
-    updateGeometry();
-}
-
-
-void
-GNERerouter::commitGeometryMoving(GNEUndoList* undoList) {
-    // commit new position allowing undo/redo
-    undoList->p_begin("position of " + getTagStr());
-    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(myPosition), toString(myMove.originalViewPosition)));
-    undoList->p_end();
 }
 
 
@@ -144,6 +132,8 @@ GNERerouter::drawGL(const GUIVisualizationSettings& s) const {
         glPushMatrix();
         // translate to front
         myNet->getViewNet()->drawTranslateFrontAttributeCarrier(this, GLO_REROUTER);
+        // Add layer matrix
+        glPushMatrix();
         // translate to position
         glTranslated(myPosition.x(), myPosition.y(), 0);
         // scale
@@ -166,8 +156,10 @@ GNERerouter::drawGL(const GUIVisualizationSettings& s) const {
             // just draw a square
             GLHelper::drawBoxLine(Position(0, s.additionalSettings.rerouterSize), 0, 2 * s.additionalSettings.rerouterSize, s.additionalSettings.rerouterSize);
         }
-        // draw Lock icon
-        myBlockIcon.drawIcon(s, rerouterExaggeration, 0.4);
+        // Pop texture matrix
+        glPopMatrix();
+        // draw lock icon
+        GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, rerouterExaggeration, -0.5, -0.5, false, 0.4);
         // Pop layer matrix
         glPopMatrix();
         // Pop name
@@ -184,10 +176,10 @@ GNERerouter::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contour has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedSquaredShape(true, s, myPosition, s.additionalSettings.rerouterSize, s.additionalSettings.rerouterSize, 0, 0, 0, rerouterExaggeration);
+            GNEGeometry::drawDottedSquaredShape(GNEGeometry::DottedContourType::INSPECT, s, myPosition, s.additionalSettings.rerouterSize, s.additionalSettings.rerouterSize, 0, 0, 0, rerouterExaggeration);
         }
         if (s.drawDottedContour() || (myNet->getViewNet()->getFrontAttributeCarrier() == this)) {
-            GNEGeometry::drawDottedSquaredShape(false, s, myPosition, s.additionalSettings.rerouterSize, s.additionalSettings.rerouterSize, 0, 0, 0, rerouterExaggeration);
+            GNEGeometry::drawDottedSquaredShape(GNEGeometry::DottedContourType::FRONT, s, myPosition, s.additionalSettings.rerouterSize, s.additionalSettings.rerouterSize, 0, 0, 0, rerouterExaggeration);
         }
     }
 }
@@ -341,9 +333,9 @@ GNERerouter::setAttribute(SumoXMLAttr key, const std::string& value) {
             myNet->getAttributeCarriers()->updateID(this, value);
             break;
         case SUMO_ATTR_POSITION:
-            myNet->removeGLObjectFromGrid(this);
             myPosition = parse<Position>(value);
-            myNet->addGLObjectIntoGrid(this);
+            // update boundary
+            updateCenteringBoundary(true);
             break;
         case SUMO_ATTR_NAME:
             myAdditionalName = value;
@@ -379,6 +371,23 @@ GNERerouter::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void 
+GNERerouter::setMoveShape(const GNEMoveResult& moveResult) {
+    // update position
+    myPosition = moveResult.shapeToUpdate.front();
+    // update geometry
+    updateGeometry();
+}
+
+
+void 
+GNERerouter::commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList) {
+    undoList->p_begin("position of " + getTagStr());
+    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(moveResult.shapeToUpdate.front())));
+    undoList->p_end();
 }
 
 

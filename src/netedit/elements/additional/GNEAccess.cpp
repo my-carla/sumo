@@ -35,10 +35,12 @@
 
 GNEAccess::GNEAccess(GNEAdditional* busStop, GNELane* lane, GNENet* net, double pos, const std::string& length, bool friendlyPos, bool blockMovement) :
     GNEAdditional(net, GLO_ACCESS, SUMO_TAG_ACCESS, "", blockMovement,
-{}, {}, {lane}, {busStop}, {}, {}, {}, {}),
-myPositionOverLane(pos),
-myLength(length),
-myFriendlyPosition(friendlyPos) {
+        {}, {}, {lane}, {busStop}, {}, {}, {}, {}),
+    myPositionOverLane(pos),
+    myLength(length),
+    myFriendlyPosition(friendlyPos) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -46,26 +48,15 @@ GNEAccess::~GNEAccess() {
 }
 
 
-void
-GNEAccess::moveGeometry(const Position& offset) {
-    // Calculate new position using old position
-    Position newPosition = myMove.originalViewPosition;
-    newPosition.add(offset);
-    // filtern position using snap to active grid
-    newPosition = myNet->getViewNet()->snapToActiveGrid(newPosition);
-    myPositionOverLane = getParentLanes().front()->getLaneShape().nearest_offset_to_point2D(newPosition, false);
-    // Update geometry
-    updateGeometry();
-}
-
-
-void
-GNEAccess::commitGeometryMoving(GNEUndoList* undoList) {
-    if (!myBlockMovement) {
-        // commit new position allowing undo/redo
-        undoList->p_begin("position of " + getTagStr());
-        undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(myPositionOverLane), myMove.firstOriginalLanePosition));
-        undoList->p_end();
+GNEMoveOperation* 
+GNEAccess::getMoveOperation(const double /*shapeOffset*/) {
+    // check conditions
+    if (myBlockMovement) {
+        // element blocked, then nothing to move
+        return nullptr;
+    } else {
+        // return move operation for additional placed over shape
+        return new GNEMoveOperation(this, getParentLanes().front(), {myPositionOverLane});
     }
 }
 
@@ -85,30 +76,17 @@ GNEAccess::updateGeometry() {
     }
     // update geometry
     myAdditionalGeometry.updateGeometry(getParentLanes().front(), fixedPositionOverLane * getParentLanes().front()->getLengthGeometryFactor());
-    // update block icon position
-    myBlockIcon.updatePositionAndRotation();
 }
 
 
-Position
-GNEAccess::getPositionInView() const {
-    if (myPositionOverLane == -1) {
-        return getParentLanes().front()->getLaneShape().front();
-    } else {
-        if (myPositionOverLane < 0) {
-            return getParentLanes().front()->getLaneShape().front();
-        } else if (myPositionOverLane > getParentLanes().front()->getLaneShape().length()) {
-            return getParentLanes().front()->getLaneShape().back();
-        } else {
-            return getParentLanes().front()->getLaneShape().positionAtOffset(myPositionOverLane);
-        }
-    }
-}
-
-
-Boundary
-GNEAccess::getCenteringBoundary() const {
-    return myAdditionalGeometry.getShape().getBoxBoundary().grow(10);
+void 
+GNEAccess::updateCenteringBoundary(const bool /*updateGrid*/) {
+    // now update geometry
+    updateGeometry();
+    // add shape boundary
+    myBoundary = myAdditionalGeometry.getShape().getBoxBoundary();
+    // grow
+    myBoundary.grow(10);
 }
 
 
@@ -160,7 +138,7 @@ GNEAccess::drawGL(const GUIVisualizationSettings& s) const {
     if (s.drawAdditionals(accessExaggeration) && myNet->getViewNet()->getDataViewOptions().showAdditionals()) {
         // Start drawing adding an gl identificator
         glPushName(getGlID());
-        // push matrix
+        // push layer matrix
         glPushMatrix();
         // translate to front
         myNet->getViewNet()->drawTranslateFrontAttributeCarrier(this, GLO_ACCESS);
@@ -171,23 +149,25 @@ GNEAccess::drawGL(const GUIVisualizationSettings& s) const {
             GLHelper::setColor(s.stoppingPlaceSettings.busStopColor);
         }
         // translate to geometry position
-        glTranslated(myAdditionalGeometry.getPosition().x(), myAdditionalGeometry.getPosition().y(), 0);
+        glTranslated(myAdditionalGeometry.getShape().front().x(), myAdditionalGeometry.getShape().front().y(), 0);
         // draw circle
         if (s.drawForRectangleSelection) {
             GLHelper::drawFilledCircle(radius * accessExaggeration, 8);
         } else {
             GLHelper::drawFilledCircle(radius * accessExaggeration, 16);
         }
-        // pop matrix
+        // draw lock icon
+        GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, accessExaggeration, 0, 0, true, 0.3);
+        // pop layer matrix
         glPopMatrix();
         // pop gl identficador
         glPopName();
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedContourCircle(true, s, myAdditionalGeometry.getPosition(), 0.5, accessExaggeration);
+            GNEGeometry::drawDottedContourCircle(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape().front(), 0.5, accessExaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedContourCircle(false, s, myAdditionalGeometry.getPosition(), 0.5, accessExaggeration);
+            GNEGeometry::drawDottedContourCircle(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape().front(), 0.5, accessExaggeration);
         }
     }
 }
@@ -340,6 +320,24 @@ GNEAccess::setAttribute(SumoXMLAttr key, const std::string& value) {
         default:
             throw InvalidArgument(getTagStr() + " doesn't have an attribute of type '" + toString(key) + "'");
     }
+}
+
+
+void
+GNEAccess::setMoveShape(const GNEMoveResult& moveResult) {
+    // change both position
+    myPositionOverLane = moveResult.shapeToUpdate.front().x();
+    // update geometry
+    updateGeometry();
+}
+
+
+void 
+GNEAccess::commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList) {
+    undoList->p_begin("position of " + getTagStr());
+    // now adjust start position
+    setAttribute(SUMO_ATTR_POSITION, toString(moveResult.shapeToUpdate.front().x()), undoList);
+    undoList->p_end();
 }
 
 

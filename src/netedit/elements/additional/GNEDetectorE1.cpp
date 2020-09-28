@@ -33,9 +33,10 @@
 // ===========================================================================
 
 GNEDetectorE1::GNEDetectorE1(const std::string& id, GNELane* lane, GNENet* net, double pos, SUMOTime freq, const std::string& filename, const std::string& vehicleTypes, const std::string& name, bool friendlyPos, bool blockMovement) :
-    GNEDetector(id, net, GLO_E1DETECTOR, SUMO_TAG_E1DETECTOR, pos, time2string(freq), filename, vehicleTypes, name, friendlyPos, blockMovement, {
-    lane
-}) {
+    GNEDetector(id, net, GLO_E1DETECTOR, SUMO_TAG_E1DETECTOR, pos, time2string(freq), filename, vehicleTypes, name, friendlyPos, blockMovement, 
+        {lane}) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -82,41 +83,9 @@ GNEDetectorE1::fixAdditionalProblem() {
 
 
 void
-GNEDetectorE1::moveGeometry(const Position& offset) {
-    // Calculate new position using old position
-    Position newPosition = myMove.originalViewPosition;
-    newPosition.add(offset);
-    // filtern position using snap to active grid
-    newPosition = myNet->getViewNet()->snapToActiveGrid(newPosition);
-    const bool storeNegative = myPositionOverLane < 0;
-    myPositionOverLane = getParentLanes().front()->getLaneShape().nearest_offset_to_point2D(newPosition, false);
-    if (storeNegative) {
-        myPositionOverLane -= getParentLanes().front()->getParentEdge()->getNBEdge()->getFinalLength();
-    }
-    // Update geometry
-    updateGeometry();
-}
-
-
-void
-GNEDetectorE1::commitGeometryMoving(GNEUndoList* undoList) {
-    // commit new position allowing undo/redo
-    undoList->p_begin("position of " + getTagStr());
-    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_POSITION, toString(myPositionOverLane), myMove.firstOriginalLanePosition));
-    undoList->p_end();
-}
-
-
-void
 GNEDetectorE1::updateGeometry() {
     // update geometry
     myAdditionalGeometry.updateGeometry(getParentLanes().front(), getGeometryPositionOverLane());
-
-    // update block icon position
-    myBlockIcon.updatePositionAndRotation();
-
-    // Set offset of the block icon
-    myBlockIcon.setOffset(1, 0);
 }
 
 
@@ -152,8 +121,8 @@ GNEDetectorE1::drawGL(const GUIVisualizationSettings& s) const {
         if (s.drawDetail(s.detailSettings.detectorDetails, E1Exaggeration)) {
             // draw E1 Logo
             drawDetectorLogo(s, E1Exaggeration, "E1", textColor);
-            // Show Lock icon depending of the Edit mode
-            myBlockIcon.drawIcon(s, E1Exaggeration);
+            // draw lock icon
+            GNEViewNetHelper::LockIcon::drawLockIcon(this, myAdditionalGeometry, E1Exaggeration, 1, 0, true);
         }
         // pop layer matrix
         glPopMatrix();
@@ -165,10 +134,10 @@ GNEDetectorE1::drawGL(const GUIVisualizationSettings& s) const {
         drawAdditionalName(s);
         // check if dotted contours has to be drawn
         if (s.drawDottedContour() || myNet->getViewNet()->isAttributeCarrierInspected(this)) {
-            GNEGeometry::drawDottedSquaredShape(true, s, myAdditionalGeometry.getPosition(), 2, 1, 0, 0, myAdditionalGeometry.getRotation(), E1Exaggeration);
+            GNEGeometry::drawDottedSquaredShape(GNEGeometry::DottedContourType::INSPECT, s, myAdditionalGeometry.getShape().front(), 2, 1, 0, 0, myAdditionalGeometry.getShapeRotations().front(), E1Exaggeration);
         }
         if (s.drawDottedContour() || myNet->getViewNet()->getFrontAttributeCarrier() == this) {
-            GNEGeometry::drawDottedSquaredShape(false, s, myAdditionalGeometry.getPosition(), 2, 1, 0, 0, myAdditionalGeometry.getRotation(), E1Exaggeration);
+            GNEGeometry::drawDottedSquaredShape(GNEGeometry::DottedContourType::FRONT, s, myAdditionalGeometry.getShape().front(), 2, 1, 0, 0, myAdditionalGeometry.getShapeRotations().front(), E1Exaggeration);
         }
     }
 }

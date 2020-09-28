@@ -50,12 +50,14 @@ int NUM_POINTS = 5;
 GNEConnection::GNEConnection(GNELane* from, GNELane* to) :
     GNENetworkElement(from->getNet(), "from" + from->getID() + "to" + to->getID(),
                       GLO_CONNECTION, SUMO_TAG_CONNECTION,
-{}, {}, {}, {}, {}, {}, {}, {}),
-myFromLane(from),
-myToLane(to),
-myLinkState(LINKSTATE_TL_OFF_NOSIGNAL),
-mySpecialColor(nullptr),
-myShapeDeprecated(true) {
+    {}, {}, {}, {}, {}, {}, {}, {}),
+    myFromLane(from),
+    myToLane(to),
+    myLinkState(LINKSTATE_TL_OFF_NOSIGNAL),
+    mySpecialColor(nullptr),
+    myShapeDeprecated(true) {
+    // update centering boundary without updating grid
+    updateCenteringBoundary(false);
 }
 
 
@@ -141,142 +143,63 @@ GNEConnection::getPositionInView() const {
 }
 
 
-void
-GNEConnection::startConnectionShapeGeometryMoving(const double shapeOffset) {
-    // save current centering boundary
-    myMovingGeometryBoundary = getCenteringBoundary();
-    // start move shape depending of block shape
-    startMoveShape(getConnectionShape(), shapeOffset, myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.connectionGeometryPointRadius);
-}
-
-
-void
-GNEConnection::endConnectionShapeGeometryMoving() {
-    // check that endGeometryMoving was called only once
-    if (myMovingGeometryBoundary.isInitialised()) {
-        // Remove object from net
-        myNet->removeGLObjectFromGrid(this);
-        // reset myMovingGeometryBoundary
-        myMovingGeometryBoundary.reset();
-        // add object into grid again (using the new centering boundary)
-        myNet->addGLObjectIntoGrid(this);
-    }
-}
-
-
-int
-GNEConnection::getConnectionShapeVertexIndex(Position pos, const bool snapToGrid) const {
-    // get shape
-    const PositionVector shape = getConnectionShape();
-    // check shape size
-    if (shape.size() == 0) {
-        return -1;
-    }
-    // check if position has to be snapped to grid
-    if (snapToGrid) {
-        pos = myNet->getViewNet()->snapToActiveGrid(pos);
-    }
-    const double offset = shape.nearest_offset_to_point2D(pos, true);
-    if (offset == GeomHelper::INVALID_OFFSET) {
-        // check if we clicked over start or end position
-        if (shape.front().distanceTo2D(pos) < myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.connectionGeometryPointRadius) {
-            return 0;
-        } else if (shape.back().distanceTo2D(pos) < myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.connectionGeometryPointRadius) {
-            return (int)shape.size() - 1;
+GNEMoveOperation* 
+GNEConnection::getMoveOperation(const double shapeOffset) {
+    // edit depending if shape is being edited
+    if (isShapeEdited()) {
+        // get connection
+        const auto &connection = getNBEdgeConnection();
+        // get original shape
+        const PositionVector originalShape = connection.customShape.size() > 0? connection.customShape : connection.shape;
+        // declare shape to move
+        PositionVector shapeToMove = originalShape;
+        // first check if in the given shapeOffset there is a geometry point
+        const Position positionAtOffset = shapeToMove.positionAtOffset2D(shapeOffset);
+        // check if position is valid
+        if (positionAtOffset == Position::INVALID) {
+            return nullptr;
         } else {
-            return -1;
+            // obtain index
+            int index = originalShape.indexOfClosest(positionAtOffset);
+            // get snap radius
+            const double snap_radius = myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.connectionGeometryPointRadius;
+            // check if we have to create a new index
+            if (positionAtOffset.distanceSquaredTo2D(shapeToMove[index]) > (snap_radius * snap_radius)) {
+                index = shapeToMove.insertAtClosest(positionAtOffset, true);
+            }
+            // return move operation for edit shape
+            return new GNEMoveOperation(this, originalShape, shapeToMove, index, {index});
         }
-    }
-    Position newPos = shape.positionAtOffset2D(offset);
-    // first check if vertex already exists in the inner geometry
-    for (int i = 0; i < (int)shape.size(); i++) {
-        if (shape[i].distanceTo2D(newPos) < myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.connectionGeometryPointRadius) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-
-void
-GNEConnection::moveConnectionShape(const Position& offset) {
-    // first obtain a copy of shapeBeforeMoving
-    PositionVector newShape = getShapeBeforeMoving();
-    if (moveEntireShape()) {
-        // move entire shape
-        newShape.add(offset);
     } else {
-        int geometryPointIndex = getGeometryPointIndex();
-        // if geometryPoint is -1, then we have to create a new geometry point
-        if (geometryPointIndex == -1) {
-            geometryPointIndex = newShape.insertAtClosest(getPosOverShapeBeforeMoving(), true);
+        return nullptr;
+    }
+}
+
+
+void 
+GNEConnection::removeGeometryPoint(const Position clickedPosition, GNEUndoList* undoList) {
+    // edit depending if shape is being edited
+    if (isShapeEdited()) {
+        // get connection
+        const auto &connection = getNBEdgeConnection();
+        // get original shape
+        PositionVector shape = connection.customShape.size() > 0? connection.customShape : connection.shape;
+        // check shape size
+        if (shape.size() > 2) {
+            // obtain index
+            int index = shape.indexOfClosest(clickedPosition);
+            // get snap radius
+            const double snap_radius = myNet->getViewNet()->getVisualisationSettings().neteditSizeSettings.connectionGeometryPointRadius;
+            // check if we have to create a new index
+            if ((index != -1) && shape[index].distanceSquaredTo2D(clickedPosition) < (snap_radius * snap_radius)) {
+                // remove geometry point
+                shape.erase(shape.begin() + index);
+                // commit new shape
+                undoList->p_begin("remove geometry point of " + getTagStr());
+                undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_CUSTOMSHAPE, toString(shape)));
+                undoList->p_end();
+            }
         }
-        // move geometry point within newShape
-        newShape[geometryPointIndex].add(offset);
-        // snap to grid
-        newShape[geometryPointIndex] = myNet->getViewNet()->snapToActiveGrid(newShape[geometryPointIndex]);
-    }
-    // set new shape
-    getNBEdgeConnection().customShape = newShape;
-    myShapeDeprecated = true;
-    // update geometry
-    updateGeometry();
-}
-
-
-void
-GNEConnection::commitConnectionShapeChange(GNEUndoList* undoList) {
-    // get visualisation settings
-    auto& s = myNet->getViewNet()->getVisualisationSettings();
-    // restore original shape into shapeToCommit
-    PositionVector shapeToCommit = getNBEdgeConnection().customShape;
-    // get geometryPoint radius
-    const double geometryPointRadius = s.neteditSizeSettings.connectionGeometryPointRadius * s.polySize.getExaggeration(s, this);
-    // remove double points
-    shapeToCommit.removeDoublePoints(geometryPointRadius);
-    // check if we have to merge start and end points
-    if ((shapeToCommit.front() != shapeToCommit.back()) && (shapeToCommit.front().distanceTo2D(shapeToCommit.back()) < geometryPointRadius)) {
-        shapeToCommit[0] = shapeToCommit.back();
-    }
-    // update geometry
-    updateGeometry();
-    // restore old geometry to allow change attribute (And restore shape if during movement a new point was created
-    getNBEdgeConnection().customShape = getShapeBeforeMoving();
-    // finish geometry moving
-    endConnectionShapeGeometryMoving();
-    // commit new shape
-    undoList->p_begin("moving " + toString(SUMO_ATTR_CUSTOMSHAPE) + " of " + getTagStr());
-    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_CUSTOMSHAPE, toString(shapeToCommit)));
-    undoList->p_end();
-}
-
-
-void
-GNEConnection::deleteConnectionShapeGeometryPoint(const Position& mousePosition, GNEUndoList* undoList) {
-    // get a copy of shape
-    PositionVector newShape = getNBEdgeConnection().customShape;
-    // obtain index
-    const int index = getConnectionShapeVertexIndex(mousePosition, false);
-    // check index
-    if ((index != -1) && (newShape.size() > 2)) {
-        // remove geometry point
-        newShape.erase(newShape.begin() + index);
-        // set new shape
-        undoList->p_begin("delete geometry point of " + getTagStr());
-        undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_CUSTOMSHAPE, toString(newShape)));
-        undoList->p_end();
-    }
-}
-
-Boundary
-GNEConnection::getBoundary() const {
-    if (myConnectionGeometry.getShape().size() == 0) {
-        // we need to use the center of junction parent as boundary if shape is empty
-        Position junctionParentPosition = myFromLane->getParentEdge()->getParentJunctions().back()->getPositionInView();
-        return Boundary(junctionParentPosition.x() - 0.1, junctionParentPosition.y() - 0.1,
-                        junctionParentPosition.x() + 0.1, junctionParentPosition.x() + 0.1);
-    } else {
-        return myConnectionGeometry.getShape().getBoxBoundary();
     }
 }
 
@@ -388,11 +311,19 @@ GNEConnection::getPopUpMenu(GUIMainWindow& app, GUISUMOAbstractView& parent) {
 }
 
 
-Boundary
-GNEConnection::getCenteringBoundary() const {
-    Boundary b = getBoundary();
-    b.grow(20);
-    return b;
+void
+GNEConnection::updateCenteringBoundary(const bool /*updateGrid*/) {
+    // calculate boundary
+    if (myConnectionGeometry.getShape().size() == 0) {
+        // we need to use the center of junction parent as boundary if shape is empty
+        const Position junctionParentPosition = myFromLane->getParentEdge()->getParentJunctions().back()->getPositionInView();
+        myBoundary = Boundary(junctionParentPosition.x() - 0.1, junctionParentPosition.y() - 0.1,
+            junctionParentPosition.x() + 0.1, junctionParentPosition.x() + 0.1);
+    } else {
+        myBoundary = myConnectionGeometry.getShape().getBoxBoundary();
+    }
+    // grow
+    myBoundary.grow(10);
 }
 
 
@@ -433,7 +364,7 @@ GNEConnection::drawGL(const GUIVisualizationSettings& s) const {
         }
         // check if boundary has to be drawn
         if (s.drawBoundaries) {
-            GLHelper::drawBoundary(getBoundary());
+            GLHelper::drawBoundary(getCenteringBoundary());
         }
         // Push name
         glPushName(getGlID());
@@ -491,7 +422,7 @@ GNEConnection::drawGL(const GUIVisualizationSettings& s) const {
                 GNEGeometry::DottedGeometry dottedConnectionGeometry(s, myConnectionGeometry.getShape(), false);
                 dottedConnectionGeometry.setWidth(0.1);
                 // use drawDottedContourLane to draw it
-                GNEGeometry::drawDottedContourLane(true, s, dottedConnectionGeometry, s.connectionSettings.connectionWidth * selectionScale, true, true);
+                GNEGeometry::drawDottedContourLane(GNEGeometry::DottedContourType::INSPECT, s, dottedConnectionGeometry, s.connectionSettings.connectionWidth * selectionScale, true, true);
             }
         }
     }
@@ -777,6 +708,8 @@ GNEConnection::setAttribute(SumoXMLAttr key, const std::string& value) {
             throw InvalidArgument("Attribute of '" + toString(key) + "' cannot be modified");
         case SUMO_ATTR_CUSTOMSHAPE: {
             nbCon.customShape = parse<PositionVector>(value);
+            // update centering boundary
+            updateCenteringBoundary(false);
             break;
         }
         case GNE_ATTR_SELECTED:
@@ -797,6 +730,26 @@ GNEConnection::setAttribute(SumoXMLAttr key, const std::string& value) {
         markConnectionGeometryDeprecated();
         updateGeometry();
     }
+}
+
+
+void 
+GNEConnection::setMoveShape(const GNEMoveResult& moveResult) {
+    // set custom shape
+    getNBEdgeConnection().customShape = moveResult.shapeToUpdate;
+    // mark junction as deprecated
+    myShapeDeprecated = true;
+    // update geometry
+    updateGeometry();
+}
+
+
+void
+GNEConnection::commitMoveShape(const GNEMoveResult& moveResult, GNEUndoList* undoList) {
+    // commit new shape
+    undoList->p_begin("moving " + toString(SUMO_ATTR_CUSTOMSHAPE) + " of " + getTagStr());
+    undoList->p_add(new GNEChange_Attribute(this, SUMO_ATTR_CUSTOMSHAPE, toString(moveResult.shapeToUpdate)));
+    undoList->p_end();
 }
 
 /****************************************************************************/
