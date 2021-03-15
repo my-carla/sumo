@@ -383,17 +383,10 @@ NIFrame::checkOptions() {
         }
     }
     if (!oc.isSet("type-files")) {
-        const char* sumoPath = std::getenv("SUMO_HOME");
-        if (sumoPath == nullptr) {
-            WRITE_WARNING("Environment variable SUMO_HOME is not set, using built in type maps.");
-        } else {
-            const std::string path = sumoPath + std::string("/data/typemap/");
-            if (oc.isSet("osm-files")) {
-                oc.setDefault("type-files", path + "osmNetconvert.typ.xml");
-            }
-            if (oc.isSet("opendrive-files")) {
-                oc.setDefault("type-files", path + "opendriveNetconvert.typ.xml");
-            }
+        const std::string path = std::string("data/typemap/");
+        if (oc.isSet("osm-files")) {
+        }
+        if (oc.isSet("opendrive-files")) {
         }
     }
     if (oc.isSet("opendrive-files")) {

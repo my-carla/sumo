@@ -172,12 +172,7 @@ SUMOSAXReader::LocalSchemaResolver::resolveEntity(const XMLCh* const /* publicId
     const std::string url = StringUtils::transcode(systemId);
     const std::string::size_type pos = url.find("/xsd/");
     if (pos != std::string::npos) {
-        const char* sumoPath = std::getenv("SUMO_HOME");
-        if (sumoPath == nullptr) {
-            // no need for a warning here, global preparsing should have done it.
-            return nullptr;
-        }
-        const std::string file = sumoPath + std::string("/data") + url.substr(pos);
+        const std::string file = std::string("../carla/data") + url.substr(pos);
         if (FileHelpers::isReadable(file)) {
             XMLCh* t = XERCES_CPP_NAMESPACE::XMLString::transcode(file.c_str());
             XERCES_CPP_NAMESPACE::InputSource* const result = new XERCES_CPP_NAMESPACE::LocalFileInputSource(t);
