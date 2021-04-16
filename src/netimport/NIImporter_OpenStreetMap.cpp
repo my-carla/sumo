@@ -90,6 +90,16 @@ public:
     }
 };
 
+template<typename T>
+bool ExistsInVector(T element, std::vector<T> vec) {
+    for (T& item : vec) {
+        if (item == element) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // ===========================================================================
 // method definitions
 // ===========================================================================
@@ -233,6 +243,8 @@ NIImporter_OpenStreetMap::load(const OptionsCont& oc, NBNetBuilder& nb) {
     NBTrafficLightLogicCont& tlsc = nb.getTLLogicCont();
     for (auto& myEdge : myEdges) {
         Edge* e = myEdge.second;
+        bool ok_for_lights = 
+            !ExistsInVector(e->myHighWayType.substr(8), oc.tl_excluded_highways_types);
         assert(e->myCurrentIsRoad);
         if (e->myCurrentNodes.size() < 2) {
             WRITE_WARNINGF("Discarding way '%' because it has only % node(s)", e->id, e->myCurrentNodes.size());
@@ -244,6 +256,10 @@ NIImporter_OpenStreetMap::load(const OptionsCont& oc, NBNetBuilder& nb) {
         //  - the in-between nodes are only built if more than one edge references them
         NBNode* currentFrom = insertNodeChecking(*e->myCurrentNodes.begin(), nc, tlsc);
         NBNode* last = insertNodeChecking(*(e->myCurrentNodes.end() - 1), nc, tlsc);
+        if (!ok_for_lights) {
+            currentFrom->is_suitable_for_traffic_lights = false;
+            last->is_suitable_for_traffic_lights = false;
+        }
         int running = 0;
         std::vector<long long int> passed;
         for (auto j = e->myCurrentNodes.begin(); j != e->myCurrentNodes.end(); ++j) {
@@ -254,12 +270,40 @@ NIImporter_OpenStreetMap::load(const OptionsCont& oc, NBNetBuilder& nb) {
                 currentFrom = currentTo;
                 passed.clear();
                 passed.push_back(*j);
+                if (!ok_for_lights) {
+                    currentFrom->is_suitable_for_traffic_lights = false;
+                }
             }
         }
         if (running == 0) {
             running = -1;
         }
         insertEdge(e, running, currentFrom, last, passed, nb);
+    }
+    if (OptionsCont::getOptions().generate_traffic_lights) {
+        for(auto& node_pair : nc) {
+            // WRITE_WARNING(node_pair.first);
+            long long int id = std::stoll(node_pair.first);
+            NBNode* node = node_pair.second;
+            NIOSMNode* n = myOSMNodes.find(id)->second;
+            if (n == nullptr) {
+                continue;
+            }
+            if ((n->tlsControlled || OptionsCont::getOptions().all_junctions_traffic_lights) &&
+                (node->is_suitable_for_traffic_lights && node->getIncomingEdges().size() > 1)) {
+                // ok, this node is a traffic light node where no other nodes
+                //  participate
+                // @note: The OSM-community has not settled on a schema for differentiating between fixed and actuated lights
+                TrafficLightType type = SUMOXMLDefinitions::TrafficLightTypes.get(
+                                            OptionsCont::getOptions().getString("tls.default-type"));
+                NBOwnTLDef* tlDef = new NBOwnTLDef(toString(id), node, 0, type);
+                if (!tlsc.insert(tlDef)) {
+                    // actually, nothing should fail here
+                    delete tlDef;
+                    throw ProcessError("Could not allocate tls '" + toString(id) + "'.");
+                }
+            }
+        }
     }
 
     const double layerElevation = oc.getFloat("osm.layer-elevation");
@@ -312,18 +356,21 @@ NIImporter_OpenStreetMap::insertNodeChecking(long long int id, NBNodeCont& nc, N
             node->reinit(pos, SumoXMLNodeType::RAIL_CROSSING);
         } else if (n->railwaySignal) {
             node->reinit(pos, SumoXMLNodeType::RAIL_SIGNAL);
-        } else if (n->tlsControlled) {
-            // ok, this node is a traffic light node where no other nodes
-            //  participate
-            // @note: The OSM-community has not settled on a schema for differentiating between fixed and actuated lights
-            TrafficLightType type = SUMOXMLDefinitions::TrafficLightTypes.get(
-                                        OptionsCont::getOptions().getString("tls.default-type"));
-            NBOwnTLDef* tlDef = new NBOwnTLDef(toString(id), node, 0, type);
-            if (!tlsc.insert(tlDef)) {
-                // actually, nothing should fail here
-                delete tlDef;
-                throw ProcessError("Could not allocate tls '" + toString(id) + "'.");
-            }
+        } else if (OptionsCont::getOptions().generate_traffic_lights) {
+            // if (n->tlsControlled || OptionsCont::getOptions().all_junctions_traffic_lights) {
+            //     // ok, this node is a traffic light node where no other nodes
+            //     //  participate
+            //     // @note: The OSM-community has not settled on a schema for differentiating between fixed and actuated lights
+            //     TrafficLightType type = SUMOXMLDefinitions::TrafficLightTypes.get(
+            //                                 OptionsCont::getOptions().getString("tls.default-type"));
+            //     NBOwnTLDef* tlDef = new NBOwnTLDef(toString(id), node, 0, type);
+            //     WRITE_WARNING("Processing traffic light");
+            //     if (!tlsc.insert(tlDef)) {
+            //         // actually, nothing should fail here
+            //         delete tlDef;
+            //         throw ProcessError("Could not allocate tls '" + toString(id) + "'.");
+            //     }
+            // }
         }
         if (n->railwayBufferStop) {
             node->setParameter("buffer_stop", "true");

@@ -35,7 +35,7 @@ endif ()
 
 # compiler specific flags
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -pthread -Wall -pedantic -Wextra -fPIC")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -pthread -Wall -pedantic -Wextra -fPIC")
 elseif (MSVC)
     # enabling /WX is not possible due to warnings in external headers
     # /Wall brings MSVC 2013 to complete halt

@@ -47,6 +47,15 @@
 // ===========================================================================
 // method definitions
 // ===========================================================================
+
+NWWriter_OpenDrive::OpenDRIVERoad::OpenDRIVERoad(int idd) : id(idd) {
+    road_device = std::make_shared<OutputDevice_String>();
+    signals_device = std::make_shared<OutputDevice_String>();
+}
+NWWriter_OpenDrive::OpenDRIVERoad::OpenDRIVERoad() {
+    road_device = std::make_shared<OutputDevice_String>();
+    signals_device = std::make_shared<OutputDevice_String>();
+}
 // ---------------------------------------------------------------------------
 // static methods
 // ---------------------------------------------------------------------------
@@ -64,6 +73,8 @@ NWWriter_OpenDrive::writeNetwork(const OptionsCont& oc, NBNetBuilder& nb) {
     // some internal mapping containers
     int nodeID = 1;
     int edgeID = nc.size() * 10; // distinct from node ids
+    int signalID = 0;
+    int controllerID = 0;
     StringBijection<int> edgeMap;
     StringBijection<int> nodeMap;
     //
@@ -117,20 +128,50 @@ NWWriter_OpenDrive::writeNetwork(const OptionsCont& oc, NBNetBuilder& nb) {
     }
     device.lf();
 
+
+    // auxiliary structs to store traffic light position effects
+    struct TLReference {
+        Position position;
+        double heading;
+    };
+    struct OpenDRIVETL {
+        int id = -1;
+        std::vector<TLReference> references;
+    };
     // write junction-internal edges (road). In OpenDRIVE these are called 'paths' or 'connecting roads'
     OutputDevice_String junctionOSS(3);
+    OutputDevice_String controllersOSS(3);
     for (std::map<std::string, NBNode*>::const_iterator i = nc.begin(); i != nc.end(); ++i) {
+        OutputDevice_String junction_intermediateOSS(3);
+        std::vector<OpenDRIVERoad> roads;
+        int num_connections = 0;
         NBNode* n = (*i).second;
         int connectionID = 0; // unique within a junction
         const int nID = getID(n->getID(), nodeMap, nodeID);
         if (n->numNormalConnections() > 0) {
-            junctionOSS << "    <junction name=\"" << n->getID() << "\" id=\"" << nID << "\">\n";
+            junction_intermediateOSS << "    <junction name=\"" << n->getID() << "\" id=\"" << nID << "\">\n";
         }
         std::vector<NBEdge*> incoming = (*i).second->getIncomingEdges();
         if (lefthand) {
             std::reverse(incoming.begin(), incoming.end());
         }
+        // store controller record to be written inside the junction record
+        OutputDevice_String junctioncontrollerOSS(2);
+        // list of traffic lights
+        std::vector<OpenDRIVETL> traffic_lights;
+        // for each road reaching the junction
         for (NBEdge* inEdge : incoming) {
+            OpenDRIVETL traffic_light;
+            traffic_light.id = signalID;
+            int num_connecting_roads = 0;
+            // signal reference to the traffic light (where it has effect)
+            OutputDevice_String signal_referenceOSS(2);
+
+            if (n->isTLControlled()) {
+                GenerateJunctionControllerRecord(junctioncontrollerOSS, controllerID, 0);
+                writeSignalReference(signal_referenceOSS, std::to_string(signalID), 0, 0, "-");
+            }
+
             std::string centerMark = "none";
             const int inEdgeID = getID(inEdge->getID(), edgeMap, edgeID);
             // group parallel edges
@@ -142,19 +183,41 @@ NWWriter_OpenDrive::writeNetwork(const OptionsCont& oc, NBNetBuilder& nb) {
             if (lefthand) {
                 std::reverse(connections.begin(), connections.end());
             }
+            // for each road connecting within the junction
             for (const NBEdge::Connection& c : connections) {
+                // remove undesired self loops
+                if (c.toEdge->getID() == ("-" + inEdge->getID()) || 
+                    inEdge->getID() == ("-" + c.toEdge->getID())) {
+                    continue;
+                }
                 assert(c.toEdge != 0);
                 if (outEdge != c.toEdge || c.fromLane == lastFromLane) {
                     if (outEdge != nullptr) {
                         if (isOuterEdge) {
                             addPedestrianConnection(inEdge, outEdge, parallel);
                         }
-                        connectionID = writeInternalEdge(device, junctionOSS, inEdge, nID,
-                                                         getID(parallel.back().getInternalLaneID(), edgeMap, edgeID),
+                        // write road and record information for traffic light
+                        OpenDRIVERoad road(getID(parallel.back().getInternalLaneID(), edgeMap, edgeID));
+                        if (n->isTLControlled()) {
+                            *(road.signals_device) << signal_referenceOSS.getString();
+                        }
+                        connectionID = writeInternalEdge(*(road.road_device), junction_intermediateOSS, inEdge, nID,
+                                                         road.id,
                                                          inEdgeID,
                                                          getID(outEdge->getID(), edgeMap, edgeID),
                                                          connectionID,
-                                                         parallel, isOuterEdge, straightThresh, centerMark);
+                                                         parallel, isOuterEdge, straightThresh, centerMark,
+                                                         road);
+                        // get positions (lanes) where traffic light is having effect
+                        for (RoadLane& lane : road.lanes) {
+                            LanePoint& initial_point = lane.points[0];
+                            Position tl_reference_position = initial_point.pos;
+                            double heading = initial_point.heading;
+                            traffic_light.references.emplace_back(TLReference{tl_reference_position, heading});
+                        }
+                        roads.emplace_back(road);
+                        num_connections++;
+                        num_connecting_roads++;
                         parallel.clear();
                         isOuterEdge = false;
                     }
@@ -170,23 +233,125 @@ NWWriter_OpenDrive::writeNetwork(const OptionsCont& oc, NBNetBuilder& nb) {
                 if (!lefthand && (n->geometryLike() || inEdge->isTurningDirectionAt(outEdge))) {
                     centerMark = "solid";
                 }
-                connectionID = writeInternalEdge(device, junctionOSS, inEdge, nID,
-                                                 getID(parallel.back().getInternalLaneID(), edgeMap, edgeID),
+                // write road and record information for traffic light
+                OpenDRIVERoad road(getID(parallel.back().getInternalLaneID(), edgeMap, edgeID));
+                if (n->isTLControlled()) {
+                    *(road.signals_device) << signal_referenceOSS.getString();
+                }
+                connectionID = writeInternalEdge(*(road.road_device), junction_intermediateOSS, inEdge, nID,
+                                                 road.id,
                                                  inEdgeID,
                                                  getID(outEdge->getID(), edgeMap, edgeID),
                                                  connectionID,
-                                                 parallel, isOuterEdge, straightThresh, centerMark);
+                                                 parallel, isOuterEdge, straightThresh, centerMark,
+                                                 road);
+                // get positions (lanes) where traffic light is having effect
+                for (RoadLane& lane : road.lanes) {
+                    LanePoint& initial_point = lane.points[0];
+                    Position tl_reference_position = initial_point.pos;
+                    double heading = initial_point.heading;
+                    traffic_light.references.emplace_back(TLReference{tl_reference_position, heading});
+                }
+                roads.emplace_back(road);
+                num_connections++;
+                num_connecting_roads++;
                 parallel.clear();
             }
+            // store controller record and traffic light
+            if(n->isTLControlled() && num_connecting_roads > 0) {
+                OutputDevice_String controllerOSS(2);
+                GenerateControllerRecord(controllerOSS, controllerID, signalID);
+                controllersOSS << controllerOSS.getString();
+                traffic_lights.emplace_back(traffic_light);
+            }
+            ++signalID;
+            ++controllerID;
         }
-        if (n->numNormalConnections() > 0) {
-            junctionOSS << "    </junction>\n";
+
+        // write the junction only of there are internal connections
+        if (num_connections > 0) {
+            junction_intermediateOSS << junctioncontrollerOSS.getString();
+            junction_intermediateOSS << "    </junction>\n";
+            junctionOSS << junction_intermediateOSS.getString();
+            // calculate TL positions
+            if (n->isTLControlled()) {
+                Position maxPos = roads.back().lanes.back().points.back().pos;
+                Position minPos = maxPos;
+                int numpoints = 0;
+                // compute junction bounding box
+                for (auto& road : roads) {
+                    for (RoadLane& lane : road.lanes) {
+                        for (auto& point : lane.points) {
+                            auto& pos = point.pos;
+                            if(pos.x() > maxPos.x()) {
+                                maxPos.setx(pos.x());
+                            }
+                            if(pos.y() > maxPos.y()) {
+                                maxPos.sety(pos.y());
+                            }
+                            if(pos.x() < minPos.x()) {
+                                minPos.setx(pos.x());
+                            }
+                            if(pos.y() < minPos.y()) {
+                                minPos.sety(pos.y());
+                            }
+                            numpoints++;
+                        }
+                    }
+                }
+                // compute location for each traffic light
+                for (auto& traffic_light : traffic_lights) {
+                    double heading = 0;
+                    // average position of the roads where the traffic light is having an effect
+                    Position center = Position(0, 0, 0);
+                    for (auto& reference : traffic_light.references) {
+                        heading = heading + reference.heading;
+                        center = center + reference.position;
+                    }
+                    heading = heading/traffic_light.references.size();
+                    center = center/traffic_light.references.size();
+                    // orientation of the roads where the traffic light is having an effect
+                    Position orientation = Position(cos(heading), sin(heading), 0);
+                    // direction perpendicular to the roads where the traffic light is affecting
+                    Position lateral = Position(orientation.y(), -orientation.x(), 0);
+                    // compute lateral displacement
+                    double max_lateral_distance = -100;
+                    for (auto& reference : traffic_light.references) {
+                        double lateral_distance = lateral.dotProduct(reference.position - center);
+                        if (lateral_distance > max_lateral_distance) {
+                            max_lateral_distance = lateral_distance;
+                        }
+                    }
+                    Position diagonal = maxPos - minPos;
+                    double displacement = diagonal.length()*0.8;
+                    // final position of the traffic light (moved forward and lateral from the point of effect)
+                    Position traffic_light_position = center + orientation*displacement + lateral*(max_lateral_distance + 5);
+                    OutputDevice_String signal_defOSS(2);
+                    writeSignalInertial(signal_defOSS, std::to_string(traffic_light.id), "1000001",
+                            traffic_light_position.x(), traffic_light_position.y(), traffic_light_position.z(), 
+                            heading, 0, 0);
+                    auto& road = roads.front();
+                    *(road.signals_device) << signal_defOSS.getString();
+                }
+            }
+        }
+        // write roads and signals to output device
+        for (auto& road : roads) {
+            *(road.road_device) << "        <signals>\n";
+            *(road.road_device) << road.signals_device->getString();
+            *(road.road_device) << "        </signals>\n";
+            road.road_device->closeTag();
+            device << road.road_device->getString();
         }
     }
+
+    device.lf();
+    device << controllersOSS.getString();
     device.lf();
     // write junctions (junction)
     device << junctionOSS.getString();
 
+    // TODO: Useless??
     for (std::map<std::string, NBNode*>::const_iterator i = nc.begin(); i != nc.end(); ++i) {
         NBNode* n = (*i).second;
         const std::vector<NBEdge*>& incoming = n->getIncomingEdges();
@@ -355,7 +520,8 @@ NWWriter_OpenDrive::writeInternalEdge(OutputDevice& device, OutputDevice& juncti
                                       const std::vector<NBEdge::Connection>& parallel,
                                       const bool isOuterEdge,
                                       const double straightThresh,
-                                      const std::string& centerMark) {
+                                      const std::string& centerMark,
+                                      OpenDRIVERoad &discretizedRoad) {
     assert(parallel.size() != 0);
     const NBEdge::Connection& cLeft = parallel.back();
     const NBEdge* outEdge = cLeft.toEdge;
@@ -424,10 +590,20 @@ NWWriter_OpenDrive::writeInternalEdge(OutputDevice& device, OutputDevice& juncti
                   << "\n";
     }
 #endif
+    // get road geometry
+    std::vector<LanePoint> lane_0;
     if (init.size() == 0) {
         writeGeomLines(fallBackShape, device, elevationOSS);
+        double heading = fallBackShape.angleAt2D(0);
+        lane_0.emplace_back(LanePoint(0, fallBackShape[0], heading));
+        lane_0.emplace_back(LanePoint(fallBackShape[0].distanceTo(fallBackShape[1]), fallBackShape[1], heading));
     } else {
         writeGeomPP3(device, elevationOSS, init, length);
+        auto bezierpoints = init.bezier(2);
+        double heading = init.angleAt2D(0);
+        lane_0.emplace_back(LanePoint(0, bezierpoints[0], heading));
+        heading = init.angleAt2D(init.size() - 2);
+        lane_0.emplace_back(LanePoint(length, bezierpoints[1], heading));
     }
     device.setPrecision(gPrecision);
     device.closeTag();
@@ -440,10 +616,12 @@ NWWriter_OpenDrive::writeInternalEdge(OutputDevice& device, OutputDevice& juncti
     device << "            <laneSection s=\"0\">\n";
     writeEmptyCenterLane(device, centerMark, 0);
     device << "                <right>\n";
+    double accumulated_width = 0;
     for (int j = (int)parallel.size(); --j >= 0;) {
         const NBEdge::Connection& c = parallel[j];
         const int fromIndex = c.fromLane - inEdge->getNumLanes();
         const int toIndex = c.toLane - outEdge->getNumLanes();
+        double lane_width = outEdge->getLaneWidth(c.toLane);
         device << "                    <lane id=\"-" << parallel.size() - j << "\" type=\"" << getLaneType(outEdge->getPermissions(c.toLane)) << "\" level=\"true\">\n";
         device << "                        <link>\n";
         device << "                            <predecessor id=\"" << fromIndex << "\"/>\n";
@@ -478,13 +656,25 @@ NWWriter_OpenDrive::writeInternalEdge(OutputDevice& device, OutputDevice& juncti
         const int toLane = -(parallel.size() - j);
         junctionDevice << "            <laneLink from=\"" << fromIndex << "\" to=\"" << toLane << "\"/>\n";
         connectionID++;
+        // get lane geometry
+        if (getLaneType(outEdge->getPermissions(c.toLane)) == "driving") {
+            RoadLane lane;
+            double displacement = accumulated_width + lane_width*0.5;
+            for (LanePoint& point : lane_0) {
+                double heading = point.heading;
+                Position lane_position = point.pos + Position(sin(heading), -cos(heading), 0) * displacement;
+                lane.points.emplace_back(LanePoint(point.s, lane_position, heading));
+            }
+            discretizedRoad.lanes.emplace_back(lane);
+        }
+        accumulated_width += lane_width;
     }
     device << "                 </right>\n";
     device << "            </laneSection>\n";
     device << "        </lanes>\n";
     device << "        <objects/>\n";
-    device << "        <signals/>\n";
-    device.closeTag();
+    // device << "        <signals/>\n";
+    // device.closeTag();
     junctionDevice << "        </connection>\n";
 
     return connectionID;
@@ -942,5 +1132,112 @@ NWWriter_OpenDrive::writeRoadObjects(OutputDevice& device, const NBEdge* e, cons
     }
 }
 
+void 
+NWWriter_OpenDrive::writeSignal(OutputDevice& device, std::string id, double s, double t, std::string type, double hOffset) {
+    device.openTag("signal");
+    device.writeAttr("id", id);
+    device.writeAttr("s", s);
+    device.writeAttr("t", t);
+    device.writeAttr("name", "signal:"+id);
+    device.writeAttr("dynamic", "yes");
+    device.writeAttr("orientation", "none");
+    device.writeAttr("zOffset", 0);
+    device.writeAttr("country", "OpenDRIVE");
+    device.writeAttr("type", type); // "1000001" is traffic light
+    device.writeAttr("subtype", "-1");
+    device.writeAttr("value", -1);
+    device.writeAttr("height", 0);
+    device.writeAttr("width", 0.5);
+    device.writeAttr("text", "");
+    device.writeAttr("hOffset", hOffset);
+    device.writeAttr("pitch", 0);
+    device.writeAttr("roll", 0);
+    device.openTag("validity");
+    device.writeAttr("fromLane", 0);
+    device.writeAttr("toLane", 0);
+    device.closeTag();
+    device.closeTag();
+}
+
+void
+NWWriter_OpenDrive::writeSignalInertial(
+        OutputDevice& device, std::string id, std::string type,
+        double x, double y, double z, 
+        double hdg, double pitch, double roll) {
+    device.openTag("signal");
+    device.writeAttr("id", id);
+    device.writeAttr("s", 0);
+    device.writeAttr("t", 0);
+    device.writeAttr("name", "signal:"+id);
+    device.writeAttr("dynamic", "yes");
+    device.writeAttr("orientation", "none");
+    device.writeAttr("zOffset", 0);
+    device.writeAttr("country", "OpenDRIVE");
+    device.writeAttr("type", type); // "1000001" is traffic light
+    device.writeAttr("subtype", "-1");
+    device.writeAttr("value", -1);
+    device.writeAttr("height", 0);
+    device.writeAttr("width", 0.5);
+    device.writeAttr("text", "");
+    device.writeAttr("hOffset", 0);
+    device.writeAttr("pitch", 0);
+    device.writeAttr("roll", 0);
+    device.openTag("validity");
+    device.writeAttr("fromLane", 0);
+    device.writeAttr("toLane", 0);
+    device.closeTag();
+    device.openTag("positionInertial");
+    device.writeAttr("x", x);
+    device.writeAttr("y", y);
+    device.writeAttr("z", z);
+    device.writeAttr("hdg", hdg);
+    device.writeAttr("pitch", pitch);
+    device.writeAttr("roll", roll);
+    device.closeTag();
+    device.closeTag();
+}
+
+
+void
+NWWriter_OpenDrive::writeSignalReference(OutputDevice& device, std::string id, double s, double t, std::string orientation) {
+    device.openTag("signalReference");
+    device.writeAttr("id", id);
+    device.writeAttr("s", s);
+    device.writeAttr("t", t);
+    device.writeAttr("orientation", orientation);
+    device.closeTag();
+}
+
+std::pair<double, double>
+NWWriter_OpenDrive::ComputePointSegmentDistance(
+            const Position& P1, const Position& P2, const Position& P3) {
+    Position P1P2 = P1 - P2;
+    double DP1P2 = P1P2.dotProduct(P1P2);
+    double t = (P3 - P1).dotProduct(P1P2) / DP1P2;
+    double dist = P3.distanceTo(P1 - P1P2*t);
+    return std::make_pair(t, dist);
+}
+
+void 
+NWWriter_OpenDrive::GenerateControllerRecord(OutputDevice& device, int controllerID, int signalID){
+    device.openTag("controller");
+    device.writeAttr("name", "crtl" + std::to_string(controllerID));
+    device.writeAttr("id", controllerID);
+    device.writeAttr("sequence", 0);
+    device.openTag("control");
+    device.writeAttr("signalId", signalID);
+    device.writeAttr("type", "");
+    device.closeTag();
+    device.closeTag();
+}
+
+void 
+NWWriter_OpenDrive::GenerateJunctionControllerRecord(OutputDevice& device, int controllerID, int sequence) {
+    device.openTag("controller");
+    device.writeAttr("id", controllerID);
+    device.writeAttr("type", 0);
+    device.writeAttr("sequence", sequence);
+    device.closeTag();
+}
 
 /****************************************************************************/
