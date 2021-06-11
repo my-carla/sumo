@@ -173,13 +173,11 @@ SUMOSAXReader::LocalSchemaResolver::resolveEntity(const XMLCh* const /* publicId
     const std::string url = StringUtils::transcode(systemId);
     const std::string::size_type pos = url.find("/xsd/");
     if (pos != std::string::npos) {
-        const std::string file = std::string("../carla/data") + url.substr(pos);
-        WRITE_WARNING("------- searching file " + url + " ---------------------");
         if(url.substr(pos) == "/xsd/types_file.xsd") {
             return new XERCES_CPP_NAMESPACE::MemBufInputSource((const XMLByte*)types_file.c_str(), types_file.size(), "registrySettings");
         }
         else {
-            WRITE_WARNING("Cannot read local schema '" + file + "', will try website lookup.");
+            WRITE_WARNING("Cannot read local schema '" + url + "', will try website lookup.");
         }
     }
     return nullptr;
