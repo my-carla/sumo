@@ -100,11 +100,11 @@ endif ()
 message(STATUS "")
 
 
-find_package(XercesC REQUIRED)
+find_package(XercesC)
 if (XercesC_FOUND)
     include_directories(SYSTEM ${XercesC_INCLUDE_DIRS})
 endif (XercesC_FOUND)
-find_package(Proj REQUIRED)
+find_package(Proj)
 if (PROJ_FOUND)
     include_directories(SYSTEM ${PROJ_INCLUDE_DIR})
     set(ENABLED_FEATURES "${ENABLED_FEATURES} Proj")
